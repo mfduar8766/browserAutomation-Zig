@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn Context2(comptime T: type) type {
+pub fn CreateContext(comptime T: type) type {
     return struct {
         const Self = @This();
         const Node = struct {

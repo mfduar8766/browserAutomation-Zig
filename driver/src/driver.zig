@@ -1,25 +1,36 @@
 const std = @import("std");
-const Http = @import("../http//http.zig").Http;
-const Logger = @import("../logger//logger.zig").Logger;
+const Http = @import("lib").Http;
+const Logger = @import("lib").Logger;
 const builtIn = @import("builtin");
-const Types = @import("../types/types.zig");
+const Types = @import("lib").Types;
 const eql = std.mem.eql;
 const startsWith = std.mem.startsWith;
-const Utils = @import("../utils/utils.zig");
+const Utils = @import("lib").Utils;
 const DriverTypes = @import("./types.zig");
 const process = std.process;
+
+// kill -9 PID
+
+fn runSetfilePermissionThread(driver: *Driver) !void {
+    try driver.setFilePermissionsThread();
+}
+
+fn runStartChromeDriverThread(driver: *Driver) !void {
+    try driver.startChromeDriverThread();
+}
 
 pub const Driver = struct {
     const Self = @This();
     const Allocator = std.mem.Allocator;
     const CHROME_DRIVER_DOWNLOAD_URL: []const u8 = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json";
-    chromeDriverRestURL: []const u8 = "http://127.0.0.1:{s}/session",
+    comptime chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/session",
     chromeDriverPort: i32 = 4444,
     allocator: Allocator,
     logger: Logger = undefined,
     chromeDriverVersion: []const u8 = Types.ChromeDriverVersion.getDriverVersion(0),
     chromeDriverExecPath: []const u8 = "",
     sessionID: []const u8 = "",
+    isDriverRunning: bool = false,
 
     pub fn init(allocator: Allocator, logger: ?Logger, options: ?DriverTypes.Options) !Self {
         var driver = Driver{ .allocator = allocator };
@@ -34,14 +45,24 @@ pub const Driver = struct {
         }
         return driver;
     }
-    pub fn newChromeDriverSession(_: *Self) !void {}
+    pub fn deInit(self: *Self) !void {
+        self.logger.closeDirAndFiles();
+    }
     pub fn launchWindow(self: *Self, url: []const u8) !void {
-        try self.logger.info("Driver::launchWindow()::navigating to:", url);
+        try self.logger.info("Driver::launchWindow()::opening chromeDriver and navigating to:", url);
         try self.openDriver();
+        // try self.navigateToURL(url);
     }
     fn checkOptions(self: *Self, options: ?DriverTypes.Options) !void {
         if (options) |op| {
             if (op.chromeDriverPort) |port| {
+                const code = try self.checkIfPortInUse(port);
+                if (code.exitCode == 0) {
+                    var buf: [6]u8 = undefined;
+                    const intToString = try std.fmt.bufPrint(&buf, "{d}", .{code.exitCode});
+                    try self.logger.err("Driver::checkOptions()::port is currently in use", intToString);
+                    @panic("Driver::checkoptins()::port is in use, exiting program...");
+                }
                 self.chromeDriverPort = port;
             }
             if (op.chromeDriverVersion) |version| {
@@ -59,6 +80,15 @@ pub const Driver = struct {
                 if (path.len > 0) self.chromeDriverExecPath = path;
             }
         }
+    }
+    fn checkIfPortInUse(self: *Self, port: i32) !Utils.ExecCmdResponse {
+        var buf: [6]u8 = undefined;
+        const formattedPort = try std.fmt.bufPrint(&buf, ":{d}", .{port});
+        const args = [_][]const u8{
+            "lsof", "-i", formattedPort,
+        };
+        const response = try Utils.executeCmds(3, self.allocator, &args);
+        return response;
     }
     fn downloadChromeDriverVersionInformation(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
@@ -197,9 +227,12 @@ pub const Driver = struct {
         const chromeDriverExecFolderIndex = chromeDriverPathArray.items[@as(usize, @intCast(index))..];
         const joinedPath = try std.mem.join(allocator, "/", chromeDriverExecFolderIndex);
 
-        const formattedDriverFolderPath = try Utils.formatString(100, []const u8, "cd \"{s}/\"\n", .{joinedPath});
-        const formattedChmodX = try Utils.formatString(100, []const u8, "chmod +x ./{s}\n", .{chromeDriverExec});
-        const formattedPort = try Utils.formatString(1024, []const u8, "./{s} --port={d} --log-path={s}\n", .{ chromeDriverExec, self.chromeDriverPort, chromeDriverLogFilePath });
+        var buf1: [100]u8 = undefined;
+        var buf2: [100]u8 = undefined;
+        var buf3: [1024]u8 = undefined;
+        const formattedDriverFolderPath = try std.fmt.bufPrint(&buf1, "cd \"{s}/\"\n", .{joinedPath});
+        const formattedChmodX = try std.fmt.bufPrint(&buf2, "chmod +x ./{s}\n", .{chromeDriverExec});
+        const formattedPort = try std.fmt.bufPrint(&buf3, "./{s} --port={d} --log-path={s}\n", .{ chromeDriverExec, self.chromeDriverPort, chromeDriverLogFilePath });
 
         _ = try arrayList.writer().write("#!/bin/bash\n");
         _ = try arrayList.writer().write(formattedDriverFolderPath);
@@ -213,13 +246,35 @@ pub const Driver = struct {
         const argv = [_][]const u8{
             "chmod",
             "+x",
-            "./startChromeDriver.sh",
+            "./runDriver.sh",
         };
-        try Utils.executeCmds(3, allocator, &argv);
+        var code = try Utils.executeCmds(3, self.allocator, &argv);
+        std.debug.print("MESSAGE: {s}\n", .{code.message});
+        try Utils.checkCode(code.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
+
         const arg2 = [_][]const u8{
-            "./startChromeDriver.sh",
+            "./runDriver.sh",
         };
-        try Utils.executeCmds(1, allocator, &arg2);
+        code = try Utils.executeCmds(1, allocator, &arg2);
+        try Utils.checkCode(code.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
+
+        const response = try self.checkIfPortInUse(self.chromeDriverPort);
+        std.debug.print("RESPONSE-MESSAGE-2: {s}\n", .{response.message});
+        if (!self.isDriverRunning) {
+            self.isDriverRunning = !self.isDriverRunning;
+            try self.logger.writeToStdOut();
+        }
+
+        // const arg2 = [_][]const u8{
+        //     "./startChromeDriver.sh",
+        // };
+        // code = try Utils.executeCmds(1, allocator, &arg2);
+        // try Utils.checkCode(code.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
+        // if (!self.isDriverRunning) {
+        //     self.isDriverRunning = !self.isDriverRunning;
+        //     try self.logger.writeToStdOut();
+        // }
+
         // try cwd.deleteFile("startChromeDriver.sh");
         defer {
             allocator.free(CWD_PATH);
@@ -230,5 +285,27 @@ pub const Driver = struct {
             arrayList.deinit();
             arena.deinit();
         }
+    }
+    fn navigateToURL(self: *Self, url: []const u8) !void {
+        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
+        defer self.allocator.free(serverHeaderBuf);
+        var req = Http.init(self.allocator, .{ .maxReaderSize = 10679494 });
+        defer req.deinit();
+        var formatStringBuf: [100]u8 = undefined;
+        const formattedURL = std.fmt.bufPrint(&formatStringBuf, self.chromeDriverRestURL, .{self.chromeDriverPort});
+        std.debug.print("URL: {s}\n", .{url});
+        var buf: [1024]u8 = undefined;
+        var fba = std.heap.FixedBufferAllocator.init(&buf);
+        var string = std.ArrayList(u8).init(fba.allocator());
+        defer string.deinit();
+        try std.json.stringify(DriverTypes.DriverOptions{ .capabilities = .{ .acceptInsecureCerts = true } }, .{}, string.writer());
+        std.debug.print("POST-BODY: {s}\n", .{buf});
+        const body = try req.post(formattedURL, std.http.Client.RequestOptions{
+            .headers = .{ .content_type = .{ .override = "application/json" } },
+            .redirect_behavior = .unhandled,
+            .server_header_buffer = serverHeaderBuf,
+        }, &buf);
+        std.debug.print("BODY: {s}\n", .{body});
+        defer self.allocator.free(body);
     }
 };

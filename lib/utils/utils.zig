@@ -3,13 +3,17 @@ const fs = std.fs;
 const os = std.os;
 const io = std.io;
 const time = std.time;
-const DriverOptions = @import("../driver//types.zig").Options;
 const Allocator = std.mem.Allocator;
 const Types = @import("../types/types.zig");
 const eql = std.mem.eql;
 const eqlAny = std.meta.eql;
 const process = std.process;
 const print = std.debug.print;
+
+pub const ExecCmdResponse = struct {
+    exitCode: i32 = 0,
+    message: []const u8 = "",
+};
 
 pub const DateTime = struct {
     year: u16,
@@ -168,11 +172,18 @@ pub fn createDir(dir: []const u8) Result {
     return res;
 }
 
-pub fn createFile(dir: []const u8, fileName: []const u8) !void {
-    var dirIter = try getCWD().openDir(dir, .{ .access_sub_paths = true, .iterate = true });
-    const file = try dirIter.createFile(fileName, .{});
+pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mode: ?comptime_int) !void {
+    var dir = try cwd.openDir(dirName, .{ .access_sub_paths = true, .iterate = true });
+    comptime var modeType: comptime_int = std.fs.Dir.default_mode;
+    if (mode) |m| {
+        modeType = m;
+    }
+    const file = try dir.createFile(fileName, .{
+        .truncate = false,
+        .mode = modeType,
+    });
     defer {
-        dirIter.close();
+        dir.close();
         file.close();
     }
 }
@@ -184,11 +195,11 @@ pub fn concatStrings(allocator: std.mem.Allocator, a: []const u8, b: []const u8)
     return bytes;
 }
 
-pub fn openDir(dir: []const u8) !fs.Dir {
-    return try getCWD().makeOpenPath(dir, .{ .access_sub_paths = true, .iterate = true });
+pub fn openDir(dir: std.fs.Dir, dirName: []const u8) !fs.Dir {
+    return try dir.makeOpenPath(dirName, .{ .access_sub_paths = true, .iterate = true });
 }
 
-pub fn readCmdArgs(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !std.json.Parsed(DriverOptions) {
+pub fn readCmdArgs(comptime T: type, allocator: std.mem.Allocator, args: *std.process.ArgIterator) !std.json.Parsed(T) {
     var optionsFile: []const u8 = "";
     while (args.next()) |a| {
         var splitArgs = std.mem.splitAny(u8, a, "=");
@@ -208,7 +219,7 @@ pub fn readCmdArgs(allocator: std.mem.Allocator, args: *std.process.ArgIterator)
     if (content.len == 0) {
         @panic("Utils::readCmdArgs()::options.json file is empty, exiting program...");
     }
-    return try std.json.parseFromSlice(DriverOptions, allocator, content, .{ .ignore_unknown_fields = true });
+    return try std.json.parseFromSlice(T, allocator, content, .{ .ignore_unknown_fields = true });
 }
 
 pub fn fileExists(cwd: std.fs.Dir, fileName: []const u8) std.fs.Dir.AccessError!void {
@@ -219,9 +230,12 @@ pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, optio
     return try std.json.parseFromSlice(T, allocator, body, options);
 }
 
-pub fn dirExists(dir: []const u8) (std.fs.Dir.MakeError || std.fs.Dir.StatFileError)!void {
-    const cwd = getCWD();
-    return try cwd.makePath(dir);
+pub fn dirExists(cwd: std.fs.Dir, dirName: []const u8) std.fs.Dir.AccessError!void {
+    return cwd.access(dirName, .{});
+}
+
+pub fn makePath(dir: std.fs.Dir, dirName: []const u8) (std.fs.Dir.MakeError || std.fs.Dir.StatFileError)!void {
+    return try dir.makePath(dirName);
 }
 
 pub fn indexOf(comptime T: type, slice: T, comptime T2: type, value: T2) isize {
@@ -236,7 +250,9 @@ pub fn indexOf(comptime T: type, slice: T, comptime T2: type, value: T2) isize {
     return index;
 }
 
-pub fn executeCmds(argsLen: comptime_int, allocator: std.mem.Allocator, args: *const [argsLen][]const u8) !void {
+pub fn executeCmds(argsLen: comptime_int, allocator: std.mem.Allocator, args: *const [argsLen][]const u8) !ExecCmdResponse {
+    print("Utils::executeCmds()::running {s}\n", .{args.*});
+    var returnStruct = ExecCmdResponse{};
     var child = process.Child.init(args, allocator);
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -253,23 +269,28 @@ pub fn executeCmds(argsLen: comptime_int, allocator: std.mem.Allocator, args: *c
         .Exited => |code| {
             if (code != 0) {
                 std.debug.print("Utils::executeCmds()::The following command exited with error code: {any}\n", .{code});
-                return error.CommandFailed;
+                returnStruct.exitCode = @as(i32, @intCast(code));
+                returnStruct.message = @errorName(error.CommandFailed);
+                return returnStruct;
             }
         },
         .Signal => |sig| {
             std.debug.print("Utils::executeCmds()::The following command returned signal: {any}\n", .{sig});
+            returnStruct.exitCode = @as(i32, @intCast(sig));
+            returnStruct.message = @errorName(error.Signal);
+            return returnStruct;
         },
         else => {
             std.debug.print("Utils::executeCmds()::The following command terminated unexpectedly with error:{s}\n", .{stderr.items});
-            return error.CommandFailed;
+            returnStruct.exitCode = 1;
+            returnStruct.message = @errorName(error.CommandFailed);
+            return returnStruct;
         },
     }
-    print("Utils::executeCmds*()::command output: {s}\n", .{stdout.items});
-}
-
-pub fn formatString(bufLen: comptime_int, comptime T: type, comptime format: T, args: anytype) ![]u8 {
-    var buf: [bufLen]u8 = undefined;
-    return try std.fmt.bufPrint(&buf, format, args);
+    returnStruct.exitCode = 0;
+    returnStruct.message = @as([]const u8, stdout.items);
+    print("Utils::executeCmds()::command:: \ncode: {d} \noutput: {s}\n", .{ returnStruct.exitCode, stdout.items });
+    return returnStruct;
 }
 
 pub fn binarySearch(comptime T: type, slice: T, element: anytype) i32 {
@@ -292,6 +313,24 @@ pub fn binarySearch(comptime T: type, slice: T, element: anytype) i32 {
         }
     }
     return -1;
+}
+
+pub fn checkCode(code: i32, message: []const u8) !void {
+    if (code != 0) {
+        @panic(message);
+    }
+}
+
+pub fn printLn(comptime message: []const u8, args: anytype) void {
+    if (@typeInfo(@TypeOf(args)) == .Struct) {
+        print(message, args);
+    } else {
+        print(message, .{args});
+    }
+}
+
+pub fn formatString(bufLen: comptime_int, buf: *[bufLen]u8, comptime fmt: []const u8, args: anytype) ![]const u8 {
+    return @as([]const u8, try std.fmt.bufPrint(buf, fmt, args));
 }
 
 // pub fn indexOf(comptime T: type, arr: T, comptime T2: type, target: anytype) i32 {

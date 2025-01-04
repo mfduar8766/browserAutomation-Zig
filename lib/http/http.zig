@@ -45,14 +45,18 @@ pub const Http = struct {
             maxSize = max;
         }
         const body = try req.reader().readAllAlloc(self.allocator, maxSize);
-        // defer self.allocator.free(body);
         return body;
     }
-    pub fn post(self: *Self, url: []const u8, options: RequestOptions) ![]u8 {
+    pub fn post(self: *Self, url: []const u8, options: RequestOptions, payload: []const u8) ![]u8 {
+        if (payload.len == 0) {
+            return "";
+        }
         const uri = try Uri.parse(url);
         var req = try self.client.open(.POST, uri, options);
+        req.transfer_encoding = .{ .content_length = payload.len };
         defer req.deinit();
         try req.send();
+        try req.writeAll(payload);
         try req.finish();
         try req.wait();
         std.debug.print("REQ.POST.STATUS: {d} LEN: {any}\n", .{ req.response.status, req.response.content_length });
