@@ -4,4 +4,6 @@
 /test/*
 /learningMaterial/*
 *.txt
-*.sh
+startChromeDriver.sh
+*.zig-*
+zig-*

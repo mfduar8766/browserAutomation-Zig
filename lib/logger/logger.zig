@@ -12,7 +12,7 @@ pub const Logger = struct {
     logDirPath: []const u8 = "Logs",
     logData: LoggerData = undefined,
     logFile: fs.File = undefined,
-    fileName: []const u8 = "foo.log",
+    fileName: []const u8 = "",
 
     pub fn init(dir: []const u8) !Self {
         var logger = Logger{};
@@ -29,10 +29,12 @@ pub const Logger = struct {
             print("Logger::init()::err:{any}\n", .{e});
             @panic("Logger::init()::error creating fileB=Name exiting program...\n");
         };
-        try Utils.createFile(logger.logDirPath, logger.fileName);
+        try Utils.createFile(Utils.getCWD(), logger.logDirPath, logger.fileName, null);
         logger.logData = LoggerData.init();
-        logger.logDir = try Utils.openDir(dir);
-        logger.logFile = try logger.logDir.openFile(logger.fileName, fs.File.OpenFlags{ .mode = fs.File.OpenMode.read_write });
+        logger.logDir = try Utils.openDir(Utils.getCWD(), logger.logDirPath);
+        logger.logFile = try logger.logDir.openFile(logger.fileName, fs.File.OpenFlags{
+            .mode = fs.File.OpenMode.read_write,
+        });
         return logger;
     }
     pub fn info(self: *Self, message: []const u8, data: ?[]const u8) !void {
@@ -50,6 +52,17 @@ pub const Logger = struct {
     pub fn closeDirAndFiles(self: *Self) void {
         self.logDir.close();
         self.logFile.close();
+    }
+    pub fn writeToStdOut(self: *Self) !void {
+        // var buf: [1024]u8 = undefined;
+        // const data = try self.logDir.readFile("driver.log", &buf);
+        // try self.info(data, null);
+        const outw = std.io.getStdOut().writer();
+        var buf: [1024]u8 = undefined;
+        var fba = std.heap.FixedBufferAllocator.init(&buf);
+        var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);
+        try std.json.stringify(self.logData, .{ .emit_null_optional_fields = false }, string.writer());
+        try outw.print("{s}\n", .{string.items});
     }
     fn createLogFile(self: *Self, dir: []const u8) !void {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -107,10 +120,15 @@ const LoggerData = struct {
         try writeToFile(file, string.items);
     }
     fn writeToFile(file: fs.File, bytes: []const u8) !void {
-        var bufWriter = io.bufferedWriter(file.writer());
+        var bufWriter = std.io.bufferedWriter(file.writer());
         const writer = bufWriter.writer();
+        _ = try file.seekFromEnd(0);
         _ = try writer.print("{s}\n", .{bytes});
         try bufWriter.flush();
-        print("{s}\n", .{bytes});
+        const stdout_file = std.io.getStdOut().writer();
+        var bw = std.io.bufferedWriter(stdout_file);
+        const stdout = bw.writer();
+        try stdout.print("{s}\n", .{bytes});
+        try bw.flush(); // don't forget to flush!
     }
 };
