@@ -1,10 +1,9 @@
 const std = @import("std");
 const print = std.debug.print;
-const Logger = @import("lib").Logger;
-const Utils = @import("lib").Utils;
-
-// const Driver = @import("./driver/driver.zig").Driver;
-// const Context = @import("./context/context.zig");
+const Logger = @import("lib/logger/logger.zig").Logger;
+const Utils = @import("lib/utils/utils.zig");
+const Driver = @import("./driver/driver.zig").Driver;
+const DriverOptions = @import("./driver/types.zig").Options;
 
 // https://stackoverflow.com/questions/72122366/how-to-initialize-variadic-function-arguments-in-zig
 // https://www.reddit.com/r/Zig/comments/y5b2xw/anytype_vs_comptime_t/
@@ -21,12 +20,21 @@ const Utils = @import("lib").Utils;
 // https://w3c.github.io/webdriver/#endpoints
 // https://www.cyberciti.biz/faq/unix-linux-check-if-port-is-in-use-command/
 // https://zig.news/mattnite/import-and-packages-23mb
+// https://ziggit.dev/t/how-to-import-a-module-inside-my-module-so-user-dont-need-to-import-it-again/5213
+// https://ziggit.dev/t/how-to-import-a-module-inside-my-module-so-user-dont-need-to-import-it-again/5213/4
 
 pub fn main() !void {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // const allocator = gpa.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
     var logger = try Logger.init("Logs");
     try logger.info("Main::main()::program running...", null);
+    var driver = try Driver.init(allocator, logger, DriverOptions{ .chromeDriverExecPath = "/Users/matheusduarte/Desktop/LearnZig/chromeDriver/chromedriver-mac-x64/chromedriver", .chromeDriverPort = 42069, .chromeDriverVersion = "Stable" });
+    try driver.launchWindow("https://jsonplaceholder.typicode.com/");
+    defer {
+        logger.closeDirAndFiles();
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
+    }
 
     // const arg = [_][]const u8{
     //     "chmod",
@@ -41,12 +49,11 @@ pub fn main() !void {
     // };
     // const code2 = try Utils.executeCmds(1, allocator, &arg2);
     // try Utils.checkCode(code2.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
+}
 
-    defer {
-        logger.closeDirAndFiles();
-        // const deinit_status = gpa.deinit();
-        // if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
-    }
-    // var driver = try Driver.init(allocator, logger, DriverOptions{ .chromeDriverExecPath = "/Users/matheusduarte/Desktop/LearnZig/chromeDriver/chromedriver-mac-x64/chromedriver", .chromeDriverPort = 42069, .chromeDriverVersion = "Stable" });
-    // try driver.launchWindow("https://jsonplaceholder.typicode.com/");
+test "simple test" {
+    var list = std.ArrayList(i32).init(std.testing.allocator);
+    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
+    try list.append(42);
+    try std.testing.expectEqual(@as(i32, 42), list.pop());
 }

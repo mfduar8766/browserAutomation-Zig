@@ -1,4 +1,5 @@
 #!/bin/bash
-echo "Running chromeDriver executable"
+echo "Cd into runDriver dir and running zig build run..."
 cd "runDriver/"
-zig run main.zig
+zig build test
+zig build run -DchromeDriverPort=42069 -DchromeDriverExecPath="/Users/matheusduarte/Desktop/browserAutomation-Zig/chromeDriver/chromedriver-mac-x64/chromedriver"

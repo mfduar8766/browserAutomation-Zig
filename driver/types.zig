@@ -5,8 +5,6 @@ pub const Options = struct {
     args: ?[][]const u8 = undefined,
 };
 
-pub const DriverOptions = struct { capabilities: struct { acceptInsecureCerts: bool = true } };
-
 pub const ChromeDriverSessionResponse = struct {
     value: Value,
 };

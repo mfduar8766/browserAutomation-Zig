@@ -54,15 +54,15 @@ pub const Logger = struct {
         self.logFile.close();
     }
     pub fn writeToStdOut(self: *Self) !void {
-        // var buf: [1024]u8 = undefined;
-        // const data = try self.logDir.readFile("driver.log", &buf);
+        var buf: [1024]u8 = undefined;
+        const data = try self.logDir.readFile("driver.log", &buf);
         // try self.info(data, null);
         const outw = std.io.getStdOut().writer();
-        var buf: [1024]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&buf);
-        var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);
-        try std.json.stringify(self.logData, .{ .emit_null_optional_fields = false }, string.writer());
-        try outw.print("{s}\n", .{string.items});
+        // var buf: [1024]u8 = undefined;
+        // var fba = std.heap.FixedBufferAllocator.init(&buf);
+        // var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);
+        // try std.json.stringify(self.logData, .{ .emit_null_optional_fields = false }, string.writer());
+        try outw.print("{s}\n", .{data});
     }
     fn createLogFile(self: *Self, dir: []const u8) !void {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};

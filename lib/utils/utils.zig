@@ -9,6 +9,7 @@ const eql = std.mem.eql;
 const eqlAny = std.meta.eql;
 const process = std.process;
 const print = std.debug.print;
+const assert = std.debug.assert;
 
 pub const ExecCmdResponse = struct {
     exitCode: i32 = 0,
@@ -331,6 +332,18 @@ pub fn printLn(comptime message: []const u8, args: anytype) void {
 
 pub fn formatString(bufLen: comptime_int, buf: *[bufLen]u8, comptime fmt: []const u8, args: anytype) ![]const u8 {
     return @as([]const u8, try std.fmt.bufPrint(buf, fmt, args));
+}
+
+pub fn useAssert(value: bool) void {
+    assert(value);
+}
+
+pub fn intToString(T: type, buf: []const u8, base: ?u8) !T {
+    var defaultBase: u8 = 10;
+    if (base) |b| {
+        defaultBase = b;
+    }
+    return try std.fmt.parseInt(T, buf, defaultBase);
 }
 
 // pub fn indexOf(comptime T: type, arr: T, comptime T2: type, target: anytype) i32 {

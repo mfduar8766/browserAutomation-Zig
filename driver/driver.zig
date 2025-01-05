@@ -198,7 +198,7 @@ pub const Driver = struct {
         const CWD_PATH = try cwd.realpathAlloc(allocator, ".");
         const logDir = self.logger.logDirPath;
         var logDirPathBuf: [50]u8 = undefined;
-        const formattedLogDirPath = try std.fmt.bufPrint(&logDirPathBuf, "/{s}/driver.log", .{logDir});
+        const formattedLogDirPath = try Utils.formatString(&logDirPathBuf, "/{s}/driver.log", .{logDir});
         const chromeDriverLogFilePath = try Utils.concatStrings(allocator, CWD_PATH, formattedLogDirPath);
 
         var fileExists = true;
@@ -230,9 +230,13 @@ pub const Driver = struct {
         var buf1: [100]u8 = undefined;
         var buf2: [100]u8 = undefined;
         var buf3: [1024]u8 = undefined;
-        const formattedDriverFolderPath = try std.fmt.bufPrint(&buf1, "cd \"{s}/\"\n", .{joinedPath});
-        const formattedChmodX = try std.fmt.bufPrint(&buf2, "chmod +x ./{s}\n", .{chromeDriverExec});
-        const formattedPort = try std.fmt.bufPrint(&buf3, "./{s} --port={d} --log-path={s}\n", .{ chromeDriverExec, self.chromeDriverPort, chromeDriverLogFilePath });
+        const formattedDriverFolderPath = try Utils.formatString(&buf1, "cd \"{s}/\"\n", .{joinedPath});
+        const formattedChmodX = try Utils.formatString(&buf2, "chmod +x ./{s}\n", .{chromeDriverExec});
+        const formattedPort = try Utils.formatString(&buf3, "./{s} --port={d} --log-path={s}\n", .{
+            chromeDriverExec,
+            self.chromeDriverPort,
+            chromeDriverLogFilePath,
+        });
 
         _ = try arrayList.writer().write("#!/bin/bash\n");
         _ = try arrayList.writer().write(formattedDriverFolderPath);
@@ -249,7 +253,6 @@ pub const Driver = struct {
             "./runDriver.sh",
         };
         var code = try Utils.executeCmds(3, self.allocator, &argv);
-        std.debug.print("MESSAGE: {s}\n", .{code.message});
         try Utils.checkCode(code.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
 
         const arg2 = [_][]const u8{
@@ -259,22 +262,11 @@ pub const Driver = struct {
         try Utils.checkCode(code.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
 
         const response = try self.checkIfPortInUse(self.chromeDriverPort);
-        std.debug.print("RESPONSE-MESSAGE-2: {s}\n", .{response.message});
+        self.logger.info("Driver::openDriver()::received response from checkIfPortInUse()::", response.message);
         if (!self.isDriverRunning) {
             self.isDriverRunning = !self.isDriverRunning;
             try self.logger.writeToStdOut();
         }
-
-        // const arg2 = [_][]const u8{
-        //     "./startChromeDriver.sh",
-        // };
-        // code = try Utils.executeCmds(1, allocator, &arg2);
-        // try Utils.checkCode(code.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
-        // if (!self.isDriverRunning) {
-        //     self.isDriverRunning = !self.isDriverRunning;
-        //     try self.logger.writeToStdOut();
-        // }
-
         // try cwd.deleteFile("startChromeDriver.sh");
         defer {
             allocator.free(CWD_PATH);

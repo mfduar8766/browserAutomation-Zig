@@ -45,11 +45,14 @@ pub fn build(b: *std.Build) !void {
     });
     const target = b.standardTargetOptions(.{});
 
-    const libRoot = b.addStaticLibrary(.{
+    const rootStaticLib = b.addStaticLibrary(.{
         .name = "root",
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+    });
+    const commonLib = b.addModule("lib", .{
+        .root_source_file = b.path("../lib/main.zig"),
     });
     const exe = b.addExecutable(.{
         .name = "automation",
@@ -57,13 +60,10 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .target = target,
     });
-    const lib = b.addModule("lib", .{
-        .root_source_file = b.path("../lib/main.zig"),
-    });
-    b.installArtifact(libRoot);
     b.installArtifact(exe);
-    exe.linkLibrary(libRoot);
-    exe.root_module.addImport("lib", lib);
+    b.installArtifact(rootStaticLib);
+    exe.linkLibrary(rootStaticLib);
+    exe.root_module.addImport("lib", commonLib);
 
     const runCmd = b.addRunArtifact(exe);
     runCmd.step.dependOn(b.getInstallStep());
@@ -93,7 +93,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(&run_exe_unit_tests.step);
 
     // for (targets) |target| {
-    //     const libRoot = b.addStaticLibrary(.{
+    //     const rootStaticLib = b.addStaticLibrary(.{
     //         .name = "root",
     //         .root_source_file = b.path("src/root.zig"),
     //         .target = b.resolveTargetQuery(target),
@@ -116,7 +116,7 @@ pub fn build(b: *std.Build) !void {
     //         },
     //     );
     //     const targetOutLibRoot = b.addInstallArtifact(
-    //         libRoot,
+    //         rootStaticLib,
     //         .{
     //             .dest_dir = .{
     //                 .override = .{

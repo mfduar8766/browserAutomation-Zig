@@ -44,6 +44,7 @@ pub fn build(b: *std.Build) !void {
         .preferred_optimize_mode = .ReleaseSafe,
     });
     const target = b.standardTargetOptions(.{});
+
     const exe = b.addExecutable(.{
         .name = "browserautomation",
         .root_source_file = b.path("./main.zig"),
@@ -53,6 +54,7 @@ pub fn build(b: *std.Build) !void {
     const lib = b.addModule("lib", .{
         .root_source_file = b.path("./lib/main.zig"),
     });
+
     b.installArtifact(exe);
     exe.root_module.addImport("lib", lib);
 
@@ -65,60 +67,15 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&runCmd.step);
 
-    // // const lib_unit_tests = b.addTest(.{
-    // //     .root_source_file = b.path("src/root.zig"),
-    // //     .target = target,
-    // //     .optimize = optimize,
-    // // });
-
-    // const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("./main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     const test_step = b.step("test", "Run unit tests");
-    // test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
-
-    // for (targets) |target| {
-    //     const libRoot = b.addStaticLibrary(.{
-    //         .name = "root",
-    //         .root_source_file = b.path("src/root.zig"),
-    //         .target = b.resolveTargetQuery(target),
-    //         .optimize = optimize,
-    //     });
-    //     const exe = b.addExecutable(.{
-    //         .name = "automation",
-    //         .root_source_file = b.path("src/main.zig"),
-    //         .optimize = optimize,
-    //         .target = b.resolveTargetQuery(target),
-    //     });
-    // //     const targetOutExe = b.addInstallArtifact(
-    //         exe,
-    //         .{
-    //             .dest_dir = .{
-    //                 .override = .{
-    //                     .custom = try target.zigTriple(b.allocator),
-    //                 },
-    //             },
-    //         },
-    //     );
-    //     const targetOutLibRoot = b.addInstallArtifact(
-    //         libRoot,
-    //         .{
-    //             .dest_dir = .{
-    //                 .override = .{
-    //                     .custom = try target.zigTriple(b.allocator),
-    //                 },
-    //             },
-    //         },
-    //     );
-    //     b.getInstallStep().dependOn(&targetOutExe.step);
-    //     b.getInstallStep().dependOn(&targetOutLibRoot.step);
-    // }
 }
 
 // Although this function looks imperative, note that its job is to
@@ -136,14 +93,14 @@ pub fn build(b: *std.Build) !void {
 //     // set a preferred release mode, allowing the user to decide how to optimize.
 //     const optimize = b.standardOptimizeOption(.{});
 
-//     const lib = b.addStaticLibrary(.{
-//         .name = "root",
-//         // In this case the main source file is merely a path, however, in more
-//         // complicated build scripts, this could be a generated file.
-//         .root_source_file = b.path("src/root.zig"),
-//         .target = target,
-//         .optimize = optimize,
-//     });
+// const lib = b.addStaticLibrary(.{
+//     .name = "root",
+//     // In this case the main source file is merely a path, however, in more
+//     // complicated build scripts, this could be a generated file.
+//     .root_source_file = b.path("src/root.zig"),
+//     .target = target,
+//     .optimize = optimize,
+// });
 
 //     // This declares intent for the library to be installed into the standard
 //     // location when the user invokes the "install" step (the default step when
