@@ -118,14 +118,17 @@ pub fn getCWD() fs.Dir {
     return fs.cwd();
 }
 
-pub fn makeDirPath(dirPath: []const u8) Result {
-    getCWD().makePath(dirPath) catch |e| {
+/// Calls os.makePath
+/// Calls makeDir iteratively to make an entire path (i.e. creating any parent directories that do not exist). Returns success if the path already exists and is a /// directory. This function is not atomic, and if it returns an error, the file system may have been modified regardless. On Windows, sub_path should be encoded as WTF-8. On WASI, sub_path should be encoded as valid UTF-8. On other platforms, sub_path is an opaque sequence of bytes with no particular encoding.
+pub fn makeDirPath(cwd: std.fs.Dir, dirPath: []const u8) Result {
+    cwd.makePath(dirPath) catch |e| {
         std.debug.print("Utils::FileOrDirExists()::error: {}\n", .{e});
         return createErrorStruct(false, e);
     };
     return Result{ .Err = "", .Ok = true };
 }
 
+/// Does a recursive check to see if the given file exists in the dir
 pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     var itter = dir.iterate();
     var exists = false;
@@ -148,6 +151,8 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     return exists;
 }
 
+/// Creates a fileName
+// TODO: Needs to be generic to take in any fileName format. Right now its harcoded to {}_{}_{}.log
 pub fn createFileName(allocator: std.mem.Allocator) ![]u8 {
     const today = fromTimestamp(@intCast(time.timestamp()));
     const strAlloc = std.fmt.allocPrint(allocator, "{}_{}_{}.log", .{ today.year, today.month, today.day });
@@ -173,7 +178,7 @@ pub fn createDir(dir: []const u8) Result {
     return res;
 }
 
-pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mode: ?comptime_int) !void {
+pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mode: ?comptime_int) !struct { file: std.fs.File, dir: std.fs.Dir } {
     var dir = try cwd.openDir(dirName, .{ .access_sub_paths = true, .iterate = true });
     comptime var modeType: comptime_int = std.fs.Dir.default_mode;
     if (mode) |m| {
@@ -183,10 +188,10 @@ pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mo
         .truncate = false,
         .mode = modeType,
     });
-    defer {
-        dir.close();
-        file.close();
-    }
+    return .{
+        .file = file,
+        .dir = dir,
+    };
 }
 
 pub fn concatStrings(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]u8 {
@@ -316,17 +321,18 @@ pub fn binarySearch(comptime T: type, slice: T, element: anytype) i32 {
     return -1;
 }
 
-pub fn checkCode(code: i32, message: []const u8) !void {
+pub fn checkExitCode(code: i32, message: []const u8) !void {
     if (code != 0) {
         @panic(message);
     }
 }
 
 pub fn printLn(comptime message: []const u8, args: anytype) void {
+    const newMessage = message ++ "\n";
     if (@typeInfo(@TypeOf(args)) == .Struct) {
-        print(message, args);
+        print(newMessage, args);
     } else {
-        print(message, .{args});
+        print(newMessage, .{args});
     }
 }
 
@@ -346,7 +352,33 @@ pub fn intToString(T: type, buf: []const u8, base: ?u8) !T {
     return try std.fmt.parseInt(T, buf, defaultBase);
 }
 
-// pub fn indexOf(comptime T: type, arr: T, comptime T2: type, target: anytype) i32 {
+// TODO: Fix this later
+pub fn getPID(allocator: std.mem.Allocator, bufLen: comptime_int, buf: *[bufLen]u8, processName: []const u8) !ExecCmdResponse {
+    const query = try std.fmt.bufPrint(buf, "{s}", .{processName});
+    print("F: {s}\n", .{query});
+    const args = [_][]const u8{
+        "ps acux",
+    };
+    // ps acux| grep Terminal
+    // args: *const [argsLen][]const u8
+    const response = try executeCmds(1, allocator, &args);
+    return response;
+}
+
+pub fn checkIfPortInUse(allocator: std.mem.Allocator, port: i32) !ExecCmdResponse {
+    var buf: [6]u8 = undefined;
+    const formattedPort = try formatString(6, &buf, ":{d}", .{port});
+    const args = [_][]const u8{
+        "lsof", "-i", formattedPort,
+    };
+    return try executeCmds(3, allocator, &args);
+    // if (response.exitCode == 0) {
+    //     printLn("Utils::checkIfPortInUse()::port {d} is currently in use\n", port);
+    //     @panic("Utils::checkIfPortInUse()::port is in use, exiting program...");
+    // }
+}
+
+// pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {
 //     var index: i32 = -1;
 //     var left: usize = 0;
 //     const arrType = @as(@Type(@typeInfo(T)), arr);

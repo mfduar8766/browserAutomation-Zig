@@ -21,20 +21,37 @@ const DriverOptions = @import("./driver/types.zig").Options;
 // https://www.cyberciti.biz/faq/unix-linux-check-if-port-is-in-use-command/
 // https://zig.news/mattnite/import-and-packages-23mb
 // https://ziggit.dev/t/how-to-import-a-module-inside-my-module-so-user-dont-need-to-import-it-again/5213
-// https://ziggit.dev/t/how-to-import-a-module-inside-my-module-so-user-dont-need-to-import-it-again/5213/4
+// https://ziggit.dev/t/how-to-import-a-modmule-inside-my-module-so-user-dont-need-to-import-it-again/5213/4
+// https://www.openmymind.net/learning_zig/heap_meory/
+
+// ps cax |grep Terminal
+// ps acux |grep terminal
+
+// var running: bool = true;
+// fn interrupt(_: i32) callconv(.C) void {
+//     running = false;
+// }
+// var sa: std.posix.Sigaction = .{
+//         .handler = .{ .handler = interrupt },
+//         .mask = std.posix.empty_sigset,
+//         .flags = std.posix.SA.RESTART,
+//     };
+//     try std.posix.sigaction(std.posix.SIG.INT, &sa, null);
+
+//     while (running) {
+//         print("RUNNING...", .{});
+//     }
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     var logger = try Logger.init("Logs");
-    try logger.info("Main::main()::program running...", null);
+    try logger.info("Main::main()::", "program running...");
     var driver = try Driver.init(allocator, logger, DriverOptions{ .chromeDriverExecPath = "/Users/matheusduarte/Desktop/LearnZig/chromeDriver/chromedriver-mac-x64/chromedriver", .chromeDriverPort = 42069, .chromeDriverVersion = "Stable" });
     try driver.launchWindow("https://jsonplaceholder.typicode.com/");
-    defer {
-        logger.closeDirAndFiles();
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
-    }
+
+    // var buf: [100]u8 = undefined;
+    // _ = try Utils.getPID(allocator, 100, &buf, "Terminal");
 
     // const arg = [_][]const u8{
     //     "chmod",
@@ -42,13 +59,18 @@ pub fn main() !void {
     //     "./runDriver.sh",
     // };
     // const code = try Utils.executeCmds(3, allocator, &arg);
-    // try Utils.checkCode(code.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
+    // // try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
 
     // const arg2 = [_][]const u8{
     //     "./runDriver.sh",
     // };
     // const code2 = try Utils.executeCmds(1, allocator, &arg2);
-    // try Utils.checkCode(code2.exitCode, "Utils::checkCode()::cannot open chromeDriver, exiting program...");
+    // try Utils.checkExitCode(code2.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
+    defer {
+        logger.closeDirAndFiles();
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
+    }
 }
 
 test "simple test" {
