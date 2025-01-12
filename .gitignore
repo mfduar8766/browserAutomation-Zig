@@ -1,9 +1,11 @@
-/Logs/*
+**/Logs/*
 .DS_Store
 /chrome**
 /test/*
 /learningMaterial/*
 *.txt
-startChromeDriver.sh
-*.zig-*
+*.sh
+**.zig-*
 zig-*
+**/node_modules
+*.out

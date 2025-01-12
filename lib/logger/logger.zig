@@ -5,6 +5,7 @@ const fs = std.fs;
 const io = std.io;
 const Utils = @import("../utils/utils.zig");
 const Types = @import("../types/types.zig");
+const builtIn = @import("builtin");
 
 pub const Logger = struct {
     const Self = @This();
@@ -17,7 +18,7 @@ pub const Logger = struct {
     pub fn init(dir: []const u8) !Self {
         var logger = Logger{};
         if (dir.len > 0) logger.logDirPath = dir;
-        const res = Utils.makeDirPath(dir);
+        const res = Utils.makeDirPath(Utils.getCWD(), dir);
         if (!res.Ok) {
             print("Logger::init()::error creating Logs directory:{s}", .{res.Err});
             @panic("Logger::init()::error creating log directory exiting program...");
@@ -29,24 +30,22 @@ pub const Logger = struct {
             print("Logger::init()::err:{any}\n", .{e});
             @panic("Logger::init()::error creating fileB=Name exiting program...\n");
         };
-        try Utils.createFile(Utils.getCWD(), logger.logDirPath, logger.fileName, null);
+        const createFileData = try Utils.createFile(Utils.getCWD(), logger.logDirPath, logger.fileName, null);
         logger.logData = LoggerData.init();
-        logger.logDir = try Utils.openDir(Utils.getCWD(), logger.logDirPath);
-        logger.logFile = try logger.logDir.openFile(logger.fileName, fs.File.OpenFlags{
-            .mode = fs.File.OpenMode.read_write,
-        });
+        logger.logDir = createFileData.dir;
+        logger.logFile = createFileData.file;
         return logger;
     }
-    pub fn info(self: *Self, message: []const u8, data: ?[]const u8) !void {
+    pub fn info(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.info(self.logFile, message, data);
     }
-    pub fn warn(self: *Self, message: []const u8, data: ?[]const u8) !void {
+    pub fn warn(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.warn(self.logFile, message, data);
     }
-    pub fn err(self: *Self, message: []const u8, data: ?[]const u8) !void {
+    pub fn err(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.err(self.logFile, message, data);
     }
-    pub fn fatal(self: *Self, message: []const u8, data: ?[]const u8) !void {
+    pub fn fatal(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.fatal(self.logFile, message, data);
     }
     pub fn closeDirAndFiles(self: *Self) void {
@@ -54,24 +53,10 @@ pub const Logger = struct {
         self.logFile.close();
     }
     pub fn writeToStdOut(self: *Self) !void {
-        // var buf: [1024]u8 = undefined;
-        // const data = try self.logDir.readFile("driver.log", &buf);
-        // try self.info(data, null);
-        const outw = std.io.getStdOut().writer();
         var buf: [1024]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&buf);
-        var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);
-        try std.json.stringify(self.logData, .{ .emit_null_optional_fields = false }, string.writer());
-        try outw.print("{s}\n", .{string.items});
-    }
-    fn createLogFile(self: *Self, dir: []const u8) !void {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        defer _ = gpa.deinit();
-        const allocator = gpa.allocator();
-        const fileName = try Utils.createFileName(allocator);
-        defer allocator.free(fileName);
-        try Utils.createFile(dir, fileName);
-        self.fileName = fileName;
+        const data = try self.logDir.readFile("driver.log", &buf);
+        const outw = std.io.getStdOut().writer();
+        try outw.print("{s}\n", .{data});
     }
 };
 
@@ -79,25 +64,25 @@ const LoggerData = struct {
     time: []const u8 = "",
     level: []const u8 = Types.LogLevels.get(0),
     message: []const u8 = "",
-    data: ?[]const u8 = null,
+    data: ?[]const u8 = "",
     const Self = @This();
 
     pub fn init() LoggerData {
         return LoggerData{};
     }
-    pub fn info(self: *Self, file: fs.File, message: []const u8, data: ?[]const u8) !void {
+    pub fn info(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.INFO, message, data);
     }
-    pub fn warn(self: *Self, file: fs.File, message: []const u8, data: ?[]const u8) !void {
+    pub fn warn(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.WARNING, message, data);
     }
-    pub fn err(self: *Self, file: fs.File, message: []const u8, data: ?[]const u8) !void {
+    pub fn err(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.ERROR, message, data);
     }
-    pub fn fatal(self: *Self, file: fs.File, message: []const u8, data: ?[]const u8) !void {
+    pub fn fatal(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.FATAL, message, data);
     }
-    fn setValues(self: *Self, file: fs.File, level: Types.LogLevels, message: []const u8, data: ?[]const u8) !void {
+    fn setValues(self: *Self, file: fs.File, level: Types.LogLevels, message: []const u8, data: anytype) !void {
         switch (level) {
             Types.LogLevels.INFO => self.level = Types.LogLevels.get(0),
             Types.LogLevels.WARNING => self.level = Types.LogLevels.get(1),
@@ -105,14 +90,46 @@ const LoggerData = struct {
             Types.LogLevels.FATAL => self.level = Types.LogLevels.get(3),
         }
         self.message = message;
-        if (data) |d| self.data = d;
-        const max_len = 20;
-        var buf: [max_len]u8 = undefined;
+        var buf: [20]u8 = undefined;
         const timeStamp = try std.fmt.bufPrint(&buf, "{s}", .{Utils.toRFC3339(Utils.fromTimestamp(@intCast(time.timestamp())))});
         self.time = timeStamp;
-        try self.createJson(file);
+        try self.createJson(file, data);
     }
-    fn createJson(self: *Self, file: fs.File) !void {
+    fn convertToString(_: *Self, buf: *[4]u8, arrayList: *std.ArrayList(u8), T: ?type, data: anytype) ![]const u8 {
+        if (T) |d| {
+            const typeInfo = @typeInfo(d);
+            if (typeInfo != .Null) {
+                if (typeInfo == .Struct) {
+                    try std.json.stringify(@as(d, data), .{ .emit_null_optional_fields = false }, arrayList.writer());
+                    return @as([]const u8, arrayList.items);
+                } else if (typeInfo == .ComptimeInt) {
+                    return try Utils.formatString(4, buf, "{d}", .{@as(d, data)});
+                } else if (typeInfo == .ComptimeFloat) {
+                    return try Utils.formatString(4, buf, "{f}", .{@as(d, data)});
+                } else if (typeInfo == .Int) {
+                    return try Utils.formatString(4, buf, "{d}", .{@as(d, data)});
+                } else if (typeInfo == .Float) {
+                    return try Utils.formatString(4, buf, "{f}", .{@as(d, data)});
+                } else if (typeInfo == .Pointer) {
+                    const isConst = typeInfo.Pointer.is_const;
+                    const child = typeInfo.Pointer.child;
+                    const size = typeInfo.Pointer.size;
+                    if (isConst and child == u8 and @TypeOf(size) == std.builtin.Type.Pointer.Size) {
+                        return @as([]const u8, data);
+                    }
+                }
+            }
+        }
+        return "";
+    }
+    fn createJson(self: *Self, file: fs.File, data: anytype) !void {
+        var intBuf: [4]u8 = undefined;
+        var bufArrayList: [1024]u8 = undefined;
+        var fbaArrayList = std.heap.FixedBufferAllocator.init(&bufArrayList);
+        var arrayList = try std.ArrayList(u8).initCapacity(fbaArrayList.allocator(), 1024);
+        defer arrayList.deinit();
+        const d = try self.convertToString(&intBuf, &arrayList, @TypeOf(data), data);
+        self.data = d;
         var buf: [1024]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);

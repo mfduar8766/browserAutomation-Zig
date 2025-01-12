@@ -44,26 +44,25 @@ pub fn build(b: *std.Build) !void {
         .preferred_optimize_mode = .ReleaseSafe,
     });
     const target = b.standardTargetOptions(.{});
+    const options = b.addOptions();
 
-    const libRoot = b.addStaticLibrary(.{
-        .name = "root",
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    const chromeDriverPort = b.option([]const u8, "chromeDriverPort", "ChromeDriver port") orelse "42069";
+    const chromeDriverExecPath = b.option([]const u8, "chromeDriverExecPath", "Path to chromeDriver executable") orelse "";
+    options.addOption([]const u8, "chromeDriverPort", chromeDriverPort);
+    options.addOption([]const u8, "chromeDriverExecPath", chromeDriverExecPath);
+
     const exe = b.addExecutable(.{
-        .name = "automation",
-        .root_source_file = b.path("src/main.zig"),
+        .name = "runDriver",
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
         .target = target,
     });
-    const lib = b.addModule("lib", .{
+    const mod = b.addModule("lib", .{
         .root_source_file = b.path("../lib/main.zig"),
     });
-    b.installArtifact(libRoot);
     b.installArtifact(exe);
-    exe.linkLibrary(libRoot);
-    exe.root_module.addImport("lib", lib);
+    exe.root_module.addImport("lib", mod);
+    exe.root_module.addOptions("config", options);
 
     const runCmd = b.addRunArtifact(exe);
     runCmd.step.dependOn(b.getInstallStep());
@@ -74,22 +73,22 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&runCmd.step);
 
-    const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    // const lib_unit_tests = b.addTest(.{
+    //     .root_source_file = b.path("src/root.zig"),
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
 
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+    // const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
+    // test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 
     // for (targets) |target| {
