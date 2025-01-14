@@ -4,7 +4,8 @@
 /test/*
 /learningMaterial/*
 *.txt
-*.sh
+startChromeDriver.sh
+runDriver.sh
 **.zig-*
 zig-*
 **/node_modules

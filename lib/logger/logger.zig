@@ -114,7 +114,10 @@ const LoggerData = struct {
                     const isConst = typeInfo.Pointer.is_const;
                     const child = typeInfo.Pointer.child;
                     const size = typeInfo.Pointer.size;
-                    if (isConst and child == u8 and @TypeOf(size) == std.builtin.Type.Pointer.Size) {
+                    if (isConst and @TypeOf(size) == std.builtin.Type.Pointer.Size) {
+                        if (child == u8 or child == [data.len:0]u8) {
+                            return @as([]const u8, data);
+                        }
                         return @as([]const u8, data);
                     }
                 }

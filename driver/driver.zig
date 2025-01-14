@@ -32,10 +32,11 @@ pub const Driver = struct {
     chromeDriverExecPath: []const u8 = "",
     sessionID: []const u8 = "",
     isDriverRunning: bool = false,
+    driverLogFileDir: std.fs.Dir = undefined,
+    driverLogFile: std.fs.File = undefined,
 
     pub fn init(allocator: Allocator, logger: ?Logger, options: ?DriverTypes.Options) !Self {
         var driver = Driver{ .allocator = allocator };
-        // driver.sessionID = try allocator.alloc(u8, 33);
         if (logger) |log| {
             driver.logger = log;
         } else {
@@ -50,7 +51,8 @@ pub const Driver = struct {
     }
     pub fn deInit(self: *Self) !void {
         self.logger.closeDirAndFiles();
-        // self.allocator.free(self.sessionID);
+        self.driverLogFile.close();
+        self.driverLogFileDir.close();
     }
     /// Used to open the browser and navigate to URL
     /// Example:
@@ -229,13 +231,41 @@ pub const Driver = struct {
     fn openDriver(self: *Self) !void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const allocator = arena.allocator();
-        const fileName = "runDriver.sh";
+        const fileName = "startChromeDriver.sh";
+        const chromeDriverLogOutFile = "driver.log";
         const cwd = Utils.getCWD();
         const CWD_PATH = try cwd.realpathAlloc(allocator, ".");
         const logDir = self.logger.logDirPath;
-        var logDirPathBuf: [50]u8 = undefined;
-        const formattedLogDirPath = try Utils.formatString(50, &logDirPathBuf, "/{s}/driver.log", .{logDir});
+        var logDirPathBuf: [100]u8 = undefined;
+        const formattedLogDirPath = try Utils.formatString(100, &logDirPathBuf, "/{s}/driver.log", .{logDir});
+        std.debug.print("FORMATTED-LOG-DIR-OATH: {s}\n", .{formattedLogDirPath});
         const chromeDriverLogFilePath = try Utils.concatStrings(allocator, CWD_PATH, formattedLogDirPath);
+
+        std.debug.print("LOG-FILE-DRIVER-PATH: {s}\n", .{chromeDriverLogFilePath});
+
+        self.driverLogFileDir = try cwd.openDir(self.logger.logDirPath, .{
+            .access_sub_paths = true,
+            .iterate = true,
+        });
+        var driverLogFileExists = true;
+        Utils.fileExists(self.driverLogFileDir, chromeDriverLogOutFile) catch |e| {
+            try self.logger.warn("Driver::openDriver()::error::", @errorName(e));
+            switch (e) {
+                error.FileNotFound => {
+                    driverLogFileExists = false;
+                    try self.logger.warn("Driver::openDriver()::", @errorName(e));
+                },
+                else => {
+                    try self.logger.info("Driver::openDriver()::runDriver.sh exists, deleting file and re creating it", null);
+                },
+            }
+        };
+        if (driverLogFileExists) {
+            std.debug.print("DELTE DRIVER.LOG\n", .{});
+            try self.driverLogFileDir.deleteFile(chromeDriverLogOutFile);
+        }
+        self.driverLogFile = try self.driverLogFileDir.createFile(chromeDriverLogOutFile, .{ .truncate = true });
+        try self.driverLogFile.chmod(777);
 
         var fileExists = true;
         Utils.fileExists(cwd, fileName) catch |e| {
@@ -255,11 +285,8 @@ pub const Driver = struct {
         }
 
         var arrayList = try std.ArrayList(u8).initCapacity(allocator, 1024);
-        var createRunDriverSh = cwd.createFile(fileName, .{}) catch |e| {
-            try self.logger.warn("Driver::openDriver()::received error", @errorName(e));
-            @panic("Driver::openDriver()::received error while trying to create file, exiting program...");
-        };
-        try createRunDriverSh.chmod(777);
+        var startChromeDriver = try cwd.createFile(fileName, .{});
+        try startChromeDriver.chmod(777);
         var chromeDriverPathArray = std.ArrayList([]const u8).init(allocator);
         var splitChromePath = std.mem.split(u8, self.chromeDriverExecPath, "/");
         while (splitChromePath.next()) |next| {
@@ -270,42 +297,55 @@ pub const Driver = struct {
             @panic("Driver::openDriver()::cannot find chromeDriver folder, exiting program...");
         }
 
+        const chromeDriverExec = chromeDriverPathArray.pop();
         const chromeDriverExecFolderIndex = chromeDriverPathArray.items[@as(usize, @intCast(index))..];
-        const pathToChromeDriverExec = try std.mem.join(allocator, "/", chromeDriverExecFolderIndex);
+        const chromeDriverFolderPath = try std.mem.join(allocator, "/", chromeDriverExecFolderIndex);
         var buf1: [100]u8 = undefined;
-        var buf2: [1024]u8 = undefined;
-        const changeToRunDriverFolder = try Utils.formatString(100, &buf1, "cd \"{s}/\"\n", .{"runDriver"});
-        const runZigBuild = try Utils.formatString(1024, &buf2, "(zig build run -DchromeDriverPort={d} -DchromeDriverExecPath={s} &)\n", .{
+        var buf2: [100]u8 = undefined;
+        var buf3: [1024]u8 = undefined;
+        const formattedDriverFolderPath = try Utils.formatString(100, &buf1, "cd \"{s}/\"\n", .{chromeDriverFolderPath});
+        const formattedChmodX = try Utils.formatString(100, &buf2, "chmod +x ./{s}\n", .{chromeDriverExec});
+        const formattedChromeDriverExeCall = try Utils.formatString(1024, &buf3, "./{s} --port={d} --log-path={s} &\n", .{
+            chromeDriverExec,
             self.chromeDriverPort,
-            pathToChromeDriverExec,
+            chromeDriverLogFilePath,
         });
 
-        _ = try arrayList.writer().write("#!/bin/bash\n\n");
-        _ = try arrayList.writer().write("echo \"Cd into runDriver dir and running zig build run..\"\n");
-        _ = try arrayList.writer().write(changeToRunDriverFolder);
-        _ = try arrayList.writer().write("zig build test\n");
-        _ = try arrayList.writer().write(runZigBuild);
-        // _ = try arrayList.writer().write("disown\n");
-        var bufWriter = std.io.bufferedWriter(createRunDriverSh.writer());
+        _ = try arrayList.writer().write("#!/bin/bash\n");
+        _ = try arrayList.writer().write(formattedDriverFolderPath);
+        _ = try arrayList.writer().write(formattedChmodX);
+        _ = try arrayList.writer().write(formattedChromeDriverExeCall);
+        _ = try arrayList.writer().write("P1=$!\n");
+        _ = try arrayList.writer().write("wait $P1\n");
+        var bufWriter = std.io.bufferedWriter(startChromeDriver.writer());
         const writer = bufWriter.writer();
         _ = try writer.print("{s}\n", .{arrayList.items});
         try bufWriter.flush();
 
+        defer {
+            allocator.free(CWD_PATH);
+            allocator.free(chromeDriverLogFilePath);
+            allocator.free(chromeDriverFolderPath);
+            chromeDriverPathArray.deinit();
+            startChromeDriver.close();
+            arrayList.deinit();
+            arena.deinit();
+        }
         const argv = [_][]const u8{
             "chmod",
             "+x",
-            "./runDriver.sh",
+            "./startChromeDriver.sh",
         };
-        var code = try Utils.executeCmds(3, self.allocator, &argv);
+        var code = try Utils.executeCmds(3, allocator, &argv);
         try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
-
         const arg2 = [_][]const u8{
-            "./runDriver.sh",
+            "./startChromeDriver.sh",
         };
         code = try Utils.executeCmds(1, allocator, &arg2);
-        try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
-        try self.logger.info("Driver::openDriver()::sleeping for 3 seconds waiting for driver to start....", null);
-        std.time.sleep(3_000_000_000);
+        try Utils.checkExitCode(code.exitCode, code.message);
+
+        try self.logger.info("Driver::openDriver()::sleeping for 10 seconds waiting for driver to start....", null);
+        std.time.sleep(10_000_000_000);
 
         const response = try Utils.checkIfPortInUse(allocator, self.chromeDriverPort);
         if (!self.isDriverRunning and response.exitCode == 0) {
@@ -319,16 +359,81 @@ pub const Driver = struct {
             self.isDriverRunning = !self.isDriverRunning;
             try self.logger.writeToStdOut();
         }
-        try cwd.deleteFile(fileName);
-        defer {
-            allocator.free(CWD_PATH);
-            allocator.free(chromeDriverLogFilePath);
-            allocator.free(pathToChromeDriverExec);
-            chromeDriverPathArray.deinit();
-            createRunDriverSh.close();
-            arrayList.deinit();
-            arena.deinit();
-        }
+
+        // var arrayList = try std.ArrayList(u8).initCapacity(allocator, 1024);
+        // var createRunDriverSh = cwd.createFile(fileName, .{}) catch |e| {
+        //     try self.logger.warn("Driver::openDriver()::received error", @errorName(e));
+        //     @panic("Driver::openDriver()::received error while trying to create file, exiting program...");
+        // };
+        // try createRunDriverSh.chmod(777);
+        // var chromeDriverPathArray = std.ArrayList([]const u8).init(allocator);
+        // var splitChromePath = std.mem.split(u8, self.chromeDriverExecPath, "/");
+        // while (splitChromePath.next()) |next| {
+        //     try chromeDriverPathArray.append(next);
+        // }
+        // const index = Utils.indexOf([][]const u8, chromeDriverPathArray.items, []const u8, "chromeDriver");
+        // if (index == -1) {
+        //     @panic("Driver::openDriver()::cannot find chromeDriver folder, exiting program...");
+        // }
+
+        // const chromeDriverExecFolderIndex = chromeDriverPathArray.items[@as(usize, @intCast(index))..];
+        // const pathToChromeDriverExec = try std.mem.join(allocator, "/", chromeDriverExecFolderIndex);
+        // var buf1: [100]u8 = undefined;
+        // var buf2: [1024]u8 = undefined;
+        // const changeToRunDriverFolder = try Utils.formatString(100, &buf1, "cd \"{s}/\"\n", .{"runDriver"});
+        // const runZigBuild = try Utils.formatString(1024, &buf2, "(zig build run -DchromeDriverPort={d} -DchromeDriverExecPath={s} &)\n", .{
+        //     self.chromeDriverPort,
+        //     pathToChromeDriverExec,
+        // });
+
+        // _ = try arrayList.writer().write("#!/bin/bash\n\n");
+        // _ = try arrayList.writer().write("echo \"Cd into runDriver dir and running zig build run..\"\n");
+        // _ = try arrayList.writer().write(changeToRunDriverFolder);
+        // _ = try arrayList.writer().write("zig build test\n");
+        // _ = try arrayList.writer().write(runZigBuild);
+        // var bufWriter = std.io.bufferedWriter(createRunDriverSh.writer());
+        // const writer = bufWriter.writer();
+        // _ = try writer.print("{s}\n", .{arrayList.items});
+        // try bufWriter.flush();
+
+        // const argv = [_][]const u8{
+        //     "chmod",
+        //     "+x",
+        //     "./runDriver.sh",
+        // };
+        // var code = try Utils.executeCmds(3, self.allocator, &argv);
+        // try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
+
+        // const arg2 = [_][]const u8{
+        //     "./runDriver.sh",
+        // };
+        // code = try Utils.executeCmds(1, allocator, &arg2);
+        // try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
+        // try self.logger.info("Driver::openDriver()::sleeping for 3 seconds waiting for driver to start....", null);
+        // std.time.sleep(3_000_000_000);
+
+        // const response = try Utils.checkIfPortInUse(allocator, self.chromeDriverPort);
+        // if (!self.isDriverRunning and response.exitCode == 0) {
+        //     self.isDriverRunning = !self.isDriverRunning;
+        //     var portBuf: [7]u8 = undefined;
+        //     const portStr = try Utils.formatString(7, &portBuf, "{d}", .{self.chromeDriverPort});
+        //     try self.logger.info("Driver::openDriver()::", portStr);
+        // }
+        // try self.logger.info("Driver::openDriver()::received response from checkIfPortInUse()::", response.message);
+        // if (!self.isDriverRunning) {
+        //     self.isDriverRunning = !self.isDriverRunning;
+        //     try self.logger.writeToStdOut();
+        // }
+        // try cwd.deleteFile(fileName);
+        // defer {
+        //     allocator.free(CWD_PATH);
+        //     allocator.free(chromeDriverLogFilePath);
+        //     allocator.free(pathToChromeDriverExec);
+        //     chromeDriverPathArray.deinit();
+        //     createRunDriverSh.close();
+        //     arrayList.deinit();
+        //     arena.deinit();
+        // }
     }
     // fn navigateToURL(self: *Self, url: []const u8) !void {
     //     const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
