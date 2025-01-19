@@ -10,6 +10,8 @@ const eqlAny = std.meta.eql;
 const process = std.process;
 const print = std.debug.print;
 const assert = std.debug.assert;
+const builtIn = @import("builtin");
+const startsWith = std.mem.startsWith;
 
 pub const ExecCmdResponse = struct {
     exitCode: i32 = 0,
@@ -372,10 +374,46 @@ pub fn checkIfPortInUse(allocator: std.mem.Allocator, port: i32) !ExecCmdRespons
         "lsof", "-i", formattedPort,
     };
     return try executeCmds(3, allocator, &args);
-    // if (response.exitCode == 0) {
-    //     printLn("Utils::checkIfPortInUse()::port {d} is currently in use\n", port);
-    //     @panic("Utils::checkIfPortInUse()::port is in use, exiting program...");
-    // }
+}
+
+pub fn deleteFileIfExists(cwd: std.fs.Dir, fileName: []const u8) !void {
+    var exists = true;
+    fileExists(cwd, fileName) catch |e| {
+        printLn("Utils::deleteFileIfExists()::error:: {s}", @errorName(e));
+        switch (e) {
+            error.FileNotFound => {
+                exists = false;
+                printLn("Utils::deleteFileIfExists()::error: {s}", @errorName(e));
+            },
+            else => {
+                printLn("Utils::deleteFileIfExists()::exists, deleting file: {s} and re creating it", fileName);
+            },
+        }
+    };
+    if (exists) {
+        try cwd.deleteFile(fileName);
+    }
+}
+
+pub fn getOsType() []const u8 {
+    return switch (comptime builtIn.os.tag) {
+        .macos => {
+            const archType = builtIn.target.os.tag.archName(builtIn.cpu.arch);
+            if (startsWith(u8, archType, "x")) {
+                return Types.PlatForms.getOS(2);
+            }
+            return Types.PlatForms.getOS(1);
+        },
+        .windows => {
+            const archType = builtIn.target.os.tag.archName(builtIn.cpu.arch);
+            if (startsWith(u8, archType, "32")) {
+                return Types.PlatForms.getOS(3);
+            }
+            return Types.PlatForms.getOS(4);
+        },
+        .linux => Types.PlatForms.getOS(0),
+        else => "",
+    };
 }
 
 // pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {

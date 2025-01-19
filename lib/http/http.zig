@@ -15,13 +15,13 @@ pub const Http = struct {
     client: std.http.Client,
     reqOpts: ReqOptions,
 
-    pub fn init(allocator: std.mem.Allocator, reqOpts: ReqOptions) Self {
+    pub fn init(allocator: std.mem.Allocator, reqOpts: ?ReqOptions) Self {
         const client = Client{ .allocator = allocator };
-        return Self{
-            .allocator = allocator,
-            .client = client,
-            .reqOpts = reqOpts,
-        };
+        var httpClient = Http{ .allocator = allocator, .client = client, .reqOpts = undefined };
+        if (reqOpts) |op| {
+            httpClient.reqOpts.maxReaderSize = op.maxReaderSize;
+        }
+        return httpClient;
     }
     pub fn deinit(self: *Self) void {
         self.client.deinit();
