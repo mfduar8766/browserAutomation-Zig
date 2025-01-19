@@ -95,7 +95,7 @@ const LoggerData = struct {
         self.time = timeStamp;
         try self.createJson(file, data);
     }
-    fn convertToString(_: *Self, buf: *[4]u8, arrayList: *std.ArrayList(u8), T: ?type, data: anytype) ![]const u8 {
+    fn convertToString(_: *Self, bufLen: comptime_int, buf: *[bufLen]u8, arrayList: *std.ArrayList(u8), T: ?type, data: anytype) ![]const u8 {
         if (T) |d| {
             const typeInfo = @typeInfo(d);
             if (typeInfo != .Null) {
@@ -103,13 +103,13 @@ const LoggerData = struct {
                     try std.json.stringify(@as(d, data), .{ .emit_null_optional_fields = false }, arrayList.writer());
                     return @as([]const u8, arrayList.items);
                 } else if (typeInfo == .ComptimeInt) {
-                    return try Utils.formatString(4, buf, "{d}", .{@as(d, data)});
+                    return try Utils.formatString(bufLen, buf, "{d}", .{@as(d, data)});
                 } else if (typeInfo == .ComptimeFloat) {
-                    return try Utils.formatString(4, buf, "{f}", .{@as(d, data)});
+                    return try Utils.formatString(bufLen, buf, "{f}", .{@as(d, data)});
                 } else if (typeInfo == .Int) {
-                    return try Utils.formatString(4, buf, "{d}", .{@as(d, data)});
+                    return try Utils.formatString(bufLen, buf, "{d}", .{@as(d, data)});
                 } else if (typeInfo == .Float) {
-                    return try Utils.formatString(4, buf, "{f}", .{@as(d, data)});
+                    return try Utils.formatString(bufLen, buf, "{f}", .{@as(d, data)});
                 } else if (typeInfo == .Pointer) {
                     const isConst = typeInfo.Pointer.is_const;
                     const child = typeInfo.Pointer.child;
@@ -126,12 +126,13 @@ const LoggerData = struct {
         return "";
     }
     fn createJson(self: *Self, file: fs.File, data: anytype) !void {
-        var intBuf: [4]u8 = undefined;
+        const bufLen = 32;
+        var intBuf: [bufLen]u8 = undefined;
         var bufArrayList: [1024]u8 = undefined;
         var fbaArrayList = std.heap.FixedBufferAllocator.init(&bufArrayList);
         var arrayList = try std.ArrayList(u8).initCapacity(fbaArrayList.allocator(), 1024);
         defer arrayList.deinit();
-        const d = try self.convertToString(&intBuf, &arrayList, @TypeOf(data), data);
+        const d = try self.convertToString(bufLen, &intBuf, &arrayList, @TypeOf(data), data);
         self.data = d;
         var buf: [1024]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);

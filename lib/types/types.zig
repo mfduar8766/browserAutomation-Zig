@@ -16,34 +16,6 @@ pub const LogLevels = enum(u2) {
     }
 };
 
-pub const RequestUrlPaths = enum(u8) {
-    DELETE_SESSION,
-    STATUS,
-    TIME_OUTS,
-    SET_TIME_OUTS,
-    NAVIGATE_TO,
-    GET_CURR_URL,
-    GET_WINDOW_HANDLE,
-    CLOSE_WINDOW,
-    NEW_WINDOW,
-    FIND_ELEMENT,
-    pub fn getUrlPath(allocator: std.mem.Allocator, key: u8, url: []const u8, sessionID: []const u8) []const u8 {
-        return switch (key) {
-            0 => try Utils.concatStrings(allocator, url, sessionID),
-            1 => "http://localhost:4444/",
-            2 => "",
-            3 => "",
-            4 => "",
-            5 => "",
-            6 => "",
-            7 => "",
-            8 => "",
-            9 => "",
-            else => "",
-        };
-    }
-};
-
 pub const PlatForms = enum(u4) {
     LINUX,
     MAC_ARM_64,

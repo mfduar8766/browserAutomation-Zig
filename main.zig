@@ -47,43 +47,48 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     var logger = try Logger.init("Logs");
     try logger.info("Main::main()::", "program running...");
-    // _ = try Driver.init(allocator, logger, DriverOptions{ .chromeDriverExecPath = "/Users/matheusduarte/Desktop/LearnZig/chromeDriver/chromedriver-mac-x64/chromedriver", .chromeDriverPort = 42069, .chromeDriverVersion = "Stable" });
-    // try driver.launchWindow("https://jsonplaceholder.typicode.com/");
+    var driver = try Driver.init(allocator, logger, DriverOptions{
+        .chromeDriverExecPath = "/Users/matheusduarte/Desktop/LearnZig/chromeDriver/chromedriver-mac-x64/chromedriver",
+        .chromeDriverPort = 42069,
+        .chromeDriverVersion = "Stable",
+    });
+    try driver.waitForDriver();
+    try driver.launchWindow("https://jsonplaceholder.typicode.com/");
 
-    const argv = [_][]const u8{
-        "chmod",
-        "+x",
-        "./startDriverDetached.sh",
-    };
-    var code = try Utils.executeCmds(3, allocator, &argv);
-    try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
-    const arg2 = [_][]const u8{
-        "./startDriverDetached.sh",
-    };
-    code = try Utils.executeCmds(1, allocator, &arg2);
-    try Utils.checkExitCode(code.exitCode, code.message);
-    try logger.info("Main::main()::sleeping for 10 seconds waiting for driver to start....", null);
-    std.time.sleep(10_000_000_000);
-    try logger.info("Main::main()", "Finished waiting for driver...");
+    // const argv = [_][]const u8{
+    //     "chmod",
+    //     "+x",
+    //     "./startDriverDetached.sh",
+    // };
+    // var code = try Utils.executeCmds(3, allocator, &argv);
+    // try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
+    // const arg2 = [_][]const u8{
+    //     "./startDriverDetached.sh",
+    // };
+    // code = try Utils.executeCmds(1, allocator, &arg2);
+    // try Utils.checkExitCode(code.exitCode, code.message);
+    // try logger.info("Main::main()::sleeping for 10 seconds waiting for driver to start....", null);
+    // std.time.sleep(10_000_000_000);
+    // try logger.info("Main::main()", "Finished waiting for driver...");
 
-    const argv3 = [_][]const u8{
-        "chmod",
-        "+x",
-        "./deleteDriverSession.sh",
-    };
-    code = try Utils.executeCmds(3, allocator, &argv3);
-    try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
-    const arg4 = [_][]const u8{
-        "./deleteDriverSession.sh",
-    };
-    code = try Utils.executeCmds(1, allocator, &arg4);
-    try Utils.checkExitCode(code.exitCode, code.message);
+    // const argv3 = [_][]const u8{
+    //     "chmod",
+    //     "+x",
+    //     "./deleteDriverSession.sh",
+    // };
+    // code = try Utils.executeCmds(3, allocator, &argv3);
+    // try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
+    // const arg4 = [_][]const u8{
+    //     "./deleteDriverSession.sh",
+    // };
+    // code = try Utils.executeCmds(1, allocator, &arg4);
+    // try Utils.checkExitCode(code.exitCode, code.message);
 
     // var buf: [100]u8 = undefined;
     // _ = try Utils.getPID(allocator, 100, &buf, "Terminal");
 
     defer {
-        logger.closeDirAndFiles();
+        driver.deInit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
     }
