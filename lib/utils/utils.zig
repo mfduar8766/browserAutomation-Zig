@@ -161,6 +161,21 @@ pub fn createFileName(allocator: std.mem.Allocator) ![]u8 {
     return strAlloc;
 }
 
+pub fn createFileName2(
+    bufLen: comptime_int,
+    buf: *[bufLen]u8,
+    comptime fmt: []const u8,
+    name: anytype,
+    extension: Types.FileExtensions,
+) ![]const u8 {
+    return switch (extension) {
+        Types.FileExtensions.TXT => try formatString(bufLen, buf, fmt, .{ name, ".txt" }),
+        Types.FileExtensions.LOG => try formatString(bufLen, buf, fmt, .{ name, ".log" }),
+        Types.FileExtensions.JPEG => try formatString(bufLen, buf, fmt, .{ name, ".jpeg" }),
+        Types.FileExtensions.PNG => try formatString(bufLen, buf, fmt, .{ name, ".png" }),
+    };
+}
+
 fn createErrorStruct(value: bool, err: ?anyerror) Result {
     var res: Result = .{ .Ok = value };
     if (err) |e| {
@@ -234,8 +249,17 @@ pub fn fileExists(cwd: std.fs.Dir, fileName: []const u8) std.fs.Dir.AccessError!
     return try cwd.access(fileName, .{});
 }
 
+// TODO: come back to this
 pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, options: std.json.ParseOptions) !std.json.Parsed(T) {
     return try std.json.parseFromSlice(T, allocator, body, options);
+}
+
+pub fn stringify(allocator: std.mem.Allocator, comptime T: type, value: anytype, options: std.json.StringifyOptions) ![]u8 {
+    var arrayList = std.ArrayList(T).init(allocator);
+    try std.json.stringify(value, options, arrayList.writer());
+    const bytes = try allocator.alloc(u8, arrayList.items.len);
+    std.mem.copyForwards(u8, bytes, arrayList.items);
+    return bytes;
 }
 
 pub fn dirExists(cwd: std.fs.Dir, dirName: []const u8) std.fs.Dir.AccessError!void {

@@ -1,9 +1,9 @@
 const std = @import("std");
 const print = std.debug.print;
-const Logger = @import("lib/logger/logger.zig").Logger;
-const Utils = @import("lib/utils/utils.zig");
+const Logger = @import("./lib/logger/logger.zig").Logger;
+const Utils = @import("./lib/utils/utils.zig");
 const Driver = @import("./driver/driver.zig").Driver;
-const DriverOptions = @import("./driver/types.zig").Options;
+const DriverOptions = @import("./driver/types.zig");
 
 // https://stackoverflow.com/questions/72122366/how-to-initialize-variadic-function-arguments-in-zig
 // https://www.reddit.com/r/Zig/comments/y5b2xw/anytype_vs_comptime_t/
@@ -47,47 +47,29 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     var logger = try Logger.init("Logs");
     try logger.info("Main::main()::", "program running...");
-    var driver = try Driver.init(allocator, logger, DriverOptions{
+    var driver = try Driver.init(allocator, logger, DriverOptions.Options{
         .chromeDriverExecPath = "/Users/matheusduarte/Desktop/LearnZig/chromeDriver/chromedriver-mac-x64/chromedriver",
         .chromeDriverPort = 42069,
         .chromeDriverVersion = "Stable",
     });
     try driver.waitForDriver();
     try driver.launchWindow("https://jsonplaceholder.typicode.com/");
-
-    // const argv = [_][]const u8{
-    //     "chmod",
-    //     "+x",
-    //     "./startDriverDetached.sh",
-    // };
-    // var code = try Utils.executeCmds(3, allocator, &argv);
-    // try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
-    // const arg2 = [_][]const u8{
-    //     "./startDriverDetached.sh",
-    // };
-    // code = try Utils.executeCmds(1, allocator, &arg2);
-    // try Utils.checkExitCode(code.exitCode, code.message);
-    // try logger.info("Main::main()::sleeping for 10 seconds waiting for driver to start....", null);
-    // std.time.sleep(10_000_000_000);
-    // try logger.info("Main::main()", "Finished waiting for driver...");
-
-    // const argv3 = [_][]const u8{
-    //     "chmod",
-    //     "+x",
-    //     "./deleteDriverSession.sh",
-    // };
-    // code = try Utils.executeCmds(3, allocator, &argv3);
-    // try Utils.checkExitCode(code.exitCode, "Utils::checkExitCode()::cannot open chromeDriver, exiting program...");
-    // const arg4 = [_][]const u8{
-    //     "./deleteDriverSession.sh",
-    // };
-    // code = try Utils.executeCmds(1, allocator, &arg4);
-    // try Utils.checkExitCode(code.exitCode, code.message);
+    const seconds = 10_000_000_000;
+    try logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
+    std.time.sleep(seconds);
+    const elementID = try driver.findElement(DriverOptions.SelectorTypes.CSS_TAG, "text-6xl");
+    print("ELEMENT_ID: {s}\n", .{elementID});
+    // ry logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
+    // std.time.sleep(seconds);
+    // try driver.screenShot(null);
+    // std.time.sleep(seconds);
+    // try driver.screenShot("FOO.png");
 
     // var buf: [100]u8 = undefined;
     // _ = try Utils.getPID(allocator, 100, &buf, "Terminal");
 
     defer {
+        allocator.free(elementID);
         driver.deInit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");

@@ -6,24 +6,31 @@ const Logger = @import("../lib/logger/logger.zig").Logger;
 const Http = @import("../lib/http/http.zig").Http;
 const Types = @import("../lib/types/types.zig");
 const eql = std.mem.eql;
+const time = std.time;
 
-const ShFiles = struct {
+const Files = struct {
     startChromeDriverSh: []const u8,
     startDriverDetachedSh: []const u8,
     deleteDriverDetachedSh: []const u8,
     startChromeDriverShW: []const u8,
     startDriverDetachedShW: []const u8,
     deleteDriverDetachedShW: []const u8,
+    loggerFileDir: []const u8,
+    driverOutFile: []const u8,
+    screenShotDir: []const u8,
 };
 
-fn createFileStructs() ShFiles {
-    return ShFiles{
+fn createFileStructs() Files {
+    return Files{
         .startChromeDriverSh = "./startChromeDriver.sh",
         .startDriverDetachedSh = "./startDriverDetached.sh",
         .deleteDriverDetachedSh = "./deleteDriverDetached.sh",
         .startChromeDriverShW = ".\\startChromeDriver.sh",
         .startDriverDetachedShW = ".\\startDriverDetached.sh",
         .deleteDriverDetachedShW = ".\\deleteDriverDetached.sh",
+        .loggerFileDir = "Logs",
+        .driverOutFile = "driver.log",
+        .screenShotDir = "screenShots",
     };
 }
 
@@ -32,7 +39,8 @@ pub const FileManager = struct {
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
     driverOutFile: std.fs.File = undefined,
-    shFiles: ShFiles = createFileStructs(),
+    files: Files = createFileStructs(),
+    screenShotsDir: std.fs.Dir = undefined,
     pub fn init(allocator: std.mem.Allocator, logger: Logger) FileManager {
         return FileManager{
             .logger = logger,
@@ -42,22 +50,25 @@ pub const FileManager = struct {
     pub fn deInit(self: *Self) void {
         self.arena.deinit();
         self.driverOutFile.close();
+        self.screenShotsDir.close();
     }
     fn getAllocator(self: *Self) std.mem.Allocator {
         return self.arena.allocator();
     }
-    pub fn createShFiles(self: *Self, chromeDriverOptions: DriverTypes.Options) !void {
+    pub fn createFiles(self: *Self, chromeDriverOptions: DriverTypes.Options) !void {
         if (comptime builtIn.os.tag == .windows) {
-            try self.createStartDriverDetachedSh(self.shFiles.startDriverDetachedShW);
-            try self.deleteDriverDetachedSh(self.shFiles.deleteDriverDetachedShW);
-            try self.createStartChromeDriverSh(self.shFiles.startChromeDriverSh, chromeDriverOptions);
+            try self.createStartDriverDetachedSh(self.files.startDriverDetachedShW);
+            try self.deleteDriverDetachedSh(self.files.deleteDriverDetachedShW);
+            try self.createStartChromeDriverSh(self.files.startChromeDriverSh, chromeDriverOptions);
+            try self.createScreenShotDir();
         } else if (comptime builtIn.os.tag == .macos or builtIn.os.tag == .linux) {
-            try self.createStartDriverDetachedSh(self.shFiles.startDriverDetachedSh);
-            try self.deleteDriverDetachedSh(self.shFiles.deleteDriverDetachedSh);
-            try self.createStartChromeDriverSh(self.shFiles.startChromeDriverSh, chromeDriverOptions);
+            try self.createStartDriverDetachedSh(self.files.startDriverDetachedSh);
+            try self.deleteDriverDetachedSh(self.files.deleteDriverDetachedSh);
+            try self.createStartChromeDriverSh(self.files.startChromeDriverSh, chromeDriverOptions);
+            try self.createScreenShotDir();
         }
     }
-    pub fn executeShFiles(self: *Self, fileName: []const u8) !void {
+    pub fn executeFiles(self: *Self, fileName: []const u8) !void {
         if (comptime builtIn.os.tag == .windows) {
             const argv = [3][]const u8{
                 "chmod",
@@ -65,7 +76,7 @@ pub const FileManager = struct {
                 fileName,
             };
             var code = try Utils.executeCmds(3, self.getAllocator(), &argv);
-            try Utils.checkExitCode(code.exitCode, "FileManager::executeShFiles()::cannot open chromeDriver, exiting program...");
+            try Utils.checkExitCode(code.exitCode, "FileManager::executeFiles()::cannot open chromeDriver, exiting program...");
             const arg2 = [1][]const u8{
                 fileName,
             };
@@ -78,7 +89,7 @@ pub const FileManager = struct {
                 fileName,
             };
             var code = try Utils.executeCmds(3, self.getAllocator(), &argv);
-            try Utils.checkExitCode(code.exitCode, "FileManager::executeShFiles()::cannot open chromeDriver, exiting program...");
+            try Utils.checkExitCode(code.exitCode, "FileManager::executeFiles()::cannot open chromeDriver, exiting program...");
             const arg2 = [1][]const u8{
                 fileName,
             };
@@ -100,6 +111,36 @@ pub const FileManager = struct {
             self.getAllocator().free(body);
             req.deinit();
             res.deinit();
+        }
+    }
+    pub fn saveScreenShot(self: *Self, fileName: ?[]const u8, bytes: []const u8) !void {
+        var dest: [347828]u8 = undefined;
+        try std.base64.standard.Decoder.decode(&dest, bytes);
+        if (fileName) |name| {
+            try Utils.deleteFileIfExists(self.screenShotsDir, name);
+            const file = try self.screenShotsDir.createFile(name, .{});
+            defer file.close();
+            try file.writeAll(&dest);
+        } else {
+            var buf: [100]u8 = undefined;
+            const today = Utils.fromTimestamp(@intCast(time.timestamp()));
+            var buf2: [10]u8 = undefined;
+            const timeStr = try Utils.formatString(10, &buf2, "{d}_{d}_{d}", .{
+                today.year,
+                today.month,
+                today.day,
+            });
+            const name = try Utils.createFileName2(
+                100,
+                &buf,
+                "{s}{s}",
+                timeStr,
+                Types.FileExtensions.PNG,
+            );
+            try Utils.deleteFileIfExists(self.screenShotsDir, name);
+            const file = try self.screenShotsDir.createFile(name, .{});
+            defer file.close();
+            try file.writeAll(&dest);
         }
     }
     fn downoadChromeDriverZip(self: *Self, res: Types.ChromeDriverResponse) !void {
@@ -168,7 +209,6 @@ pub const FileManager = struct {
         try Utils.deleteFileIfExists(cwd, fileName);
         var startDriverDetachedSh = try cwd.createFile(fileName, .{});
         try startDriverDetachedSh.chmod(777);
-
         const fileData: []const u8 =
             \\#!/bin/bash
             \\# Define the screen session title
@@ -212,21 +252,23 @@ pub const FileManager = struct {
         if (logFilePath) |path| {
             chromeDriverLogFilePath = path;
         } else {
-            const dirverLogFileName: []const u8 = "driver.log";
-            try Utils.deleteFileIfExists(self.logger.logDir, dirverLogFileName);
-            self.driverOutFile = try self.logger.logDir.createFile(dirverLogFileName, .{ .truncate = true });
+            try Utils.deleteFileIfExists(self.logger.logDir, self.files.driverOutFile);
+            self.driverOutFile = try self.logger.logDir.createFile(self.files.driverOutFile, .{ .truncate = true });
             const CWD_PATH = try Utils.getCWD().realpathAlloc(self.getAllocator(), ".");
             defer self.getAllocator().free(CWD_PATH);
             const logDirName = self.logger.logDirPath;
             var logDirPathBuf: [100]u8 = undefined;
-            const formattedLogDirPath = try Utils.formatString(100, &logDirPathBuf, "/{s}/{s}", .{ logDirName, dirverLogFileName });
+            const formattedLogDirPath = try Utils.formatString(100, &logDirPathBuf, "/{s}/{s}", .{
+                logDirName,
+                self.files.driverOutFile,
+            });
             chromeDriverLogFilePath = @as([]const u8, try Utils.concatStrings(self.getAllocator(), CWD_PATH, formattedLogDirPath));
         }
         return chromeDriverLogFilePath;
     }
     fn createStartChromeDriverSh(self: *Self, fileName: []const u8, chromeDriverOptions: DriverTypes.Options) !void {
         const cwd = Utils.getCWD();
-        const chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.logFilePath);
+        const chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.chromeDriverOutFilePath);
         try Utils.deleteFileIfExists(cwd, fileName);
         var startChromeDriver = try cwd.createFile(fileName, .{});
         try startChromeDriver.chmod(777);
@@ -244,32 +286,39 @@ pub const FileManager = struct {
         const chromeDriverExec = chromeDriverPathArray.pop();
         const chromeDriverExecFolderIndex = chromeDriverPathArray.items[@as(usize, @intCast(index))..];
         const chromeDriverFolderPath = try std.mem.join(self.getAllocator(), "/", chromeDriverExecFolderIndex);
-        var buf1: [100]u8 = undefined;
-        var buf2: [100]u8 = undefined;
-        var buf3: [1024]u8 = undefined;
-        const formattedDriverFolderPath = try Utils.formatString(100, &buf1, "cd \"{s}/\"\n", .{chromeDriverFolderPath});
-        const formattedChmodX = try Utils.formatString(100, &buf2, "chmod +x ./{s}\n", .{chromeDriverExec});
-        const formattedChromeDriverExeCall = try Utils.formatString(1024, &buf3, "./{s} --port={d} --log-path={s} &\n", .{
+        var buf4: [1024]u8 = undefined;
+        const fileContents =
+            \\#!/bin/bash
+            \\cd "{s}"
+            \\chmod +x ./{s}
+            \\./{s} --port={d} --log-path={s} &
+        ;
+        const formattedFileContents = try Utils.formatString(1024, &buf4, fileContents, .{
+            chromeDriverFolderPath,
+            chromeDriverExec,
             chromeDriverExec,
             chromeDriverOptions.chromeDriverPort.?,
             chromeDriverLogFilePath,
         });
-
-        var arrayList = try std.ArrayList(u8).initCapacity(self.getAllocator(), 1024);
-        _ = try arrayList.writer().write("#!/bin/bash\n");
-        _ = try arrayList.writer().write(formattedDriverFolderPath);
-        _ = try arrayList.writer().write(formattedChmodX);
-        _ = try arrayList.writer().write(formattedChromeDriverExeCall);
-        var bufWriter = std.io.bufferedWriter(startChromeDriver.writer());
-        const writer = bufWriter.writer();
-        _ = try writer.print("{s}\n", .{arrayList.items});
-        try bufWriter.flush();
+        _ = try startChromeDriver.write(formattedFileContents);
         defer {
             self.getAllocator().free(chromeDriverLogFilePath);
             self.getAllocator().free(chromeDriverFolderPath);
             chromeDriverPathArray.deinit();
             startChromeDriver.close();
-            arrayList.deinit();
         }
+    }
+    fn createScreenShotDir(self: *Self) !void {
+        const cwd = Utils.getCWD();
+        Utils.dirExists(cwd, self.files.screenShotDir) catch |e| {
+            try self.logger.err("FileManager::createScreenShotDir()", @errorName(e));
+            self.screenShotsDir = try Utils.openDir(cwd, self.files.screenShotDir);
+        };
+        const res = Utils.makeDirPath(cwd, self.files.screenShotDir);
+        if (!res.Ok) {
+            try self.logger.err("FileManager::createScreenShotDir()::err", res.Err);
+            @panic("FileManager::createScreenShotDir()::cannot create directory, exiting program...");
+        }
+        self.screenShotsDir = try Utils.openDir(cwd, self.files.screenShotDir);
     }
 };
