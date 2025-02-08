@@ -9,3 +9,4 @@ runDriver.sh
 **.zig-*
 zig-*
 **/node_modules
+**/screenShots/**

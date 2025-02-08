@@ -6,7 +6,23 @@ pub const Options = struct {
     chromeDriverPort: ?i32 = undefined,
     chromeDriverVersion: ?[]const u8 = undefined,
     args: ?[][]const u8 = undefined,
-    logFilePath: ?[]const u8 = undefined,
+    chromeDriverOutFilePath: ?[]const u8 = undefined,
+};
+
+pub const SelectorTypes = enum(u8) {
+    CSS_TAG,
+    ID_TAG,
+    X_PATH,
+    TAG_NAME,
+    pub fn getSelector(key: u9) []const u8 {
+        return switch (key) {
+            0 => "css selector",
+            1 => "id",
+            3 => "xpath",
+            4 => "tag name",
+            else => "NOT_SUPPORTED",
+        };
+    }
 };
 
 pub const RequestUrlPaths = enum(u8) {
@@ -16,41 +32,15 @@ pub const RequestUrlPaths = enum(u8) {
     TIME_OUTS,
     SET_TIME_OUTS,
     NAVIGATE_TO,
-    GET_CURR_URL,
     GET_WINDOW_HANDLE,
     CLOSE_WINDOW,
     NEW_WINDOW,
-    FIND_ELEMENT,
-    pub fn getUrlPath(bufLen: comptime_int, buf: *[bufLen]u8, key: u8, sessionID: []const u8, port: i32) ![]const u8 {
-        const chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}";
-        return switch (key) {
-            0 => {
-                return try Utils.formatString(bufLen, buf, chromeDriverRestURL, .{
-                    port,
-                    "session",
-                });
-            },
-            1 => "http://localhost:4444/",
-            2 => "",
-            3 => "",
-            4 => "",
-            5 => {
-                const newPath = chromeDriverRestURL ++ "/{s}" ++ "/{s}";
-                return try Utils.formatString(bufLen, buf, newPath, .{
-                    port,
-                    "session",
-                    sessionID,
-                    "url",
-                });
-            },
-            6 => "",
-            7 => "",
-            8 => "",
-            9 => "",
-            else => "",
-        };
-    }
+    FIND_ELEMENT_BY_SELECTOR,
+    GET_ELEMENT_TEXT,
+    CLICK_ELEMENT,
+    SCREEN_SHOT,
 };
+
 /// ChromeDriver response to /sessions API request
 pub const ChromeDriverSessionResponse = struct {
     value: struct {
@@ -105,6 +95,17 @@ const Timeouts = struct {
     script: u32,
 };
 
+pub const FindElementBySelectorResponse = struct {
+    value: struct {
+        @"element-6066-11e4-a52e-4f735466cecf": []const u8,
+    },
+};
+
+pub const GetElementTextResponse = struct {
+    //TODO: Will this always be a string??
+    value: []const u8,
+};
+
 ///ChromeDriverStatus - response from chromeDriver /status API to determine if chrome is ready to receive requests
 pub const ChromeDriverStatus = struct {
     value: struct {
@@ -123,4 +124,13 @@ pub const ChromeDriverStatus = struct {
 
 pub const ChromeDriverNavigateRequestPayload = struct {
     url: []const u8 = "",
+};
+
+pub const FindElementBy = struct {
+    using: []const u8 = "",
+    value: []const u8 = "",
+};
+
+pub const ScreenShotResponse = struct {
+    value: []const u8,
 };

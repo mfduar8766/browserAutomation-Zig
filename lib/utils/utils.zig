@@ -153,12 +153,20 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     return exists;
 }
 
-/// Creates a fileName
-// TODO: Needs to be generic to take in any fileName format. Right now its harcoded to {}_{}_{}.log
-pub fn createFileName(allocator: std.mem.Allocator) ![]u8 {
-    const today = fromTimestamp(@intCast(time.timestamp()));
-    const strAlloc = std.fmt.allocPrint(allocator, "{}_{}_{}.log", .{ today.year, today.month, today.day });
-    return strAlloc;
+//TODO: Make this generic so that we can pass X number of args to the function
+pub fn createFileName(
+    bufLen: comptime_int,
+    buf: *[bufLen]u8,
+    comptime fmt: []const u8,
+    args: anytype,
+    extension: Types.FileExtensions,
+) ![]const u8 {
+    return switch (extension) {
+        Types.FileExtensions.TXT => try formatString(bufLen, buf, fmt, .{ args, ".txt" }),
+        Types.FileExtensions.LOG => try formatString(bufLen, buf, fmt, .{ args, ".log" }),
+        Types.FileExtensions.JPEG => try formatString(bufLen, buf, fmt, .{ args, ".jpeg" }),
+        Types.FileExtensions.PNG => try formatString(bufLen, buf, fmt, .{ args, ".png" }),
+    };
 }
 
 fn createErrorStruct(value: bool, err: ?anyerror) Result {
@@ -234,8 +242,17 @@ pub fn fileExists(cwd: std.fs.Dir, fileName: []const u8) std.fs.Dir.AccessError!
     return try cwd.access(fileName, .{});
 }
 
+// TODO: come back to this
 pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, options: std.json.ParseOptions) !std.json.Parsed(T) {
     return try std.json.parseFromSlice(T, allocator, body, options);
+}
+
+pub fn stringify(allocator: std.mem.Allocator, comptime T: type, value: anytype, options: std.json.StringifyOptions) ![]u8 {
+    var arrayList = std.ArrayList(T).init(allocator);
+    try std.json.stringify(value, options, arrayList.writer());
+    const bytes = try allocator.alloc(u8, arrayList.items.len);
+    std.mem.copyForwards(u8, bytes, arrayList.items);
+    return bytes;
 }
 
 pub fn dirExists(cwd: std.fs.Dir, dirName: []const u8) std.fs.Dir.AccessError!void {
