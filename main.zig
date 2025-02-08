@@ -42,6 +42,9 @@ const DriverOptions = @import("./driver/types.zig");
 //         print("RUNNING...", .{});
 //     }
 
+const F = struct { f: i32 = 12 };
+const G = struct { g: i32 = 12 };
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -54,23 +57,15 @@ pub fn main() !void {
     });
     try driver.waitForDriver();
     try driver.launchWindow("https://jsonplaceholder.typicode.com/");
-    const seconds = 10_000_000_000;
-    try logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
-    std.time.sleep(seconds);
-    const elementID = try driver.findElement(DriverOptions.SelectorTypes.CSS_TAG, "text-6xl");
-    print("ELEMENT_ID: {s}\n", .{elementID});
-    // ry logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
-    // std.time.sleep(seconds);
-    // try driver.screenShot(null);
-    // std.time.sleep(seconds);
-    // try driver.screenShot("FOO.png");
 
-    // var buf: [100]u8 = undefined;
-    // _ = try Utils.getPID(allocator, 100, &buf, "Terminal");
+    // const seconds = 10_000_000_000;
+    // try logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
+    // std.time.sleep(seconds);
+    // const elementID = try driver.findElement(DriverOptions.SelectorTypes.CSS_TAG, "text-6xl");
+    // print("ELEMENT_ID: {s}\n", .{elementID});
 
     defer {
-        allocator.free(elementID);
-        driver.deInit();
+        // driver.deInit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
     }

@@ -153,26 +153,19 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     return exists;
 }
 
-/// Creates a fileName
-// TODO: Needs to be generic to take in any fileName format. Right now its harcoded to {}_{}_{}.log
-pub fn createFileName(allocator: std.mem.Allocator) ![]u8 {
-    const today = fromTimestamp(@intCast(time.timestamp()));
-    const strAlloc = std.fmt.allocPrint(allocator, "{}_{}_{}.log", .{ today.year, today.month, today.day });
-    return strAlloc;
-}
-
-pub fn createFileName2(
+//TODO: Make this generic so that we can pass X number of args to the function
+pub fn createFileName(
     bufLen: comptime_int,
     buf: *[bufLen]u8,
     comptime fmt: []const u8,
-    name: anytype,
+    args: anytype,
     extension: Types.FileExtensions,
 ) ![]const u8 {
     return switch (extension) {
-        Types.FileExtensions.TXT => try formatString(bufLen, buf, fmt, .{ name, ".txt" }),
-        Types.FileExtensions.LOG => try formatString(bufLen, buf, fmt, .{ name, ".log" }),
-        Types.FileExtensions.JPEG => try formatString(bufLen, buf, fmt, .{ name, ".jpeg" }),
-        Types.FileExtensions.PNG => try formatString(bufLen, buf, fmt, .{ name, ".png" }),
+        Types.FileExtensions.TXT => try formatString(bufLen, buf, fmt, .{ args, ".txt" }),
+        Types.FileExtensions.LOG => try formatString(bufLen, buf, fmt, .{ args, ".log" }),
+        Types.FileExtensions.JPEG => try formatString(bufLen, buf, fmt, .{ args, ".jpeg" }),
+        Types.FileExtensions.PNG => try formatString(bufLen, buf, fmt, .{ args, ".png" }),
     };
 }
 

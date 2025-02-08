@@ -130,7 +130,7 @@ pub const FileManager = struct {
                 today.month,
                 today.day,
             });
-            const name = try Utils.createFileName2(
+            const name = try Utils.createFileName(
                 100,
                 &buf,
                 "{s}{s}",
