@@ -153,7 +153,6 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     return exists;
 }
 
-//TODO: Make this generic so that we can pass X number of args to the function
 pub fn createFileName(
     bufLen: comptime_int,
     buf: *[bufLen]u8,
@@ -161,11 +160,25 @@ pub fn createFileName(
     args: anytype,
     extension: Types.FileExtensions,
 ) ![]const u8 {
+    const emptyTuple = .{};
+    const combinedArgs = emptyTuple ++ args;
     return switch (extension) {
-        Types.FileExtensions.TXT => try formatString(bufLen, buf, fmt, .{ args, ".txt" }),
-        Types.FileExtensions.LOG => try formatString(bufLen, buf, fmt, .{ args, ".log" }),
-        Types.FileExtensions.JPEG => try formatString(bufLen, buf, fmt, .{ args, ".jpeg" }),
-        Types.FileExtensions.PNG => try formatString(bufLen, buf, fmt, .{ args, ".png" }),
+        Types.FileExtensions.TXT => {
+            const txtExtension = combinedArgs ++ .{".txt"};
+            return try formatString(bufLen, buf, fmt, txtExtension);
+        },
+        Types.FileExtensions.LOG => {
+            const logExtension = combinedArgs ++ .{".log"};
+            return try formatString(bufLen, buf, fmt, logExtension);
+        },
+        Types.FileExtensions.JPEG => {
+            const jPegExtension = combinedArgs ++ .{".jpeg"};
+            return try formatString(bufLen, buf, fmt, jPegExtension);
+        },
+        Types.FileExtensions.PNG => {
+            const pngExtension = combinedArgs ++ .{".png"};
+            return try formatString(bufLen, buf, fmt, pngExtension);
+        },
     };
 }
 
@@ -454,4 +467,50 @@ pub fn getOsType() []const u8 {
 //         }
 //     }
 //     return -1;
+// }
+
+// const txtExtension = combinedArgs ++ .{"txt"};
+// print("FFFFF: {any}\n", .{txtExtension});
+// const f = try formatString(bufLen, buf, fmt, txtExtension);
+// print("F: {s}\n", .{f});
+// return f;
+
+// const T = @TypeOf(args);
+// const typeInfo = @typeInfo(T);
+// print("TypeOf({})\n", .{T});
+// if (typeInfo == .Struct) {
+//     const fields = typeInfo.Struct.fields;
+//     // const F = .{};
+//     // const G = struct {};
+//     // const gFields = @typeInfo(@TypeOf(G)).Struct.fields;
+//     // const merge = fields ++ gFields;
+//     // const Y = @Type(.{ .Struct = .{
+//     //     .layout = .auto,
+//     //     .fields = fields ++ gFields,
+//     //     .is_tuple = false,
+//     //     .decls = &.{},
+//     // } });
+//     // print("Y: {any}\n", .{Y});
+
+//     comptime var array: [3]comptime_int = undefined;
+//     // var bufArrayList: [1024]u8 = undefined;
+//     // var fba = std.heap.FixedBufferAllocator.init(&bufArrayList);
+//     // const allocator = fba.allocator();
+//     // comptime var arrList = std.ArrayList(comptime_int).init(std.heap.page_allocator);
+//     // defer arrList.deinit();
+//     comptime var i = 0;
+//     inline for (fields) |field| {
+//         const dvalue_aligned: *align(field.alignment) const anyopaque = @alignCast(field.default_value.?);
+//         const value = @as(*const field.type, @ptrCast(dvalue_aligned)).*;
+//         std.log.info("name: {s} default value: {}", .{ field.name, value });
+//         array[i] = value;
+//         i += 1;
+//         // try arrList.append(value);
+//         // const new_tuple = F ++ .{ value, ".txt" };
+//         // print("S: {any}\n", .{new_tuple});
+//     }
+//     const slice = &array;
+//     print("ITEMS: {s}\n", .{slice});
+//     print("TUPLE: {any}\n", .{std.meta.Tuple(slice)});
+//     return "";
 // }

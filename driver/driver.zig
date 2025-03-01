@@ -92,7 +92,7 @@ pub const Driver = struct {
         }
         try self.fileManager.executeShFiles(self.fileManager.files.deleteDriverDetachedSh);
     }
-    /// findElement - Used to find the element by selector
+    /// findElement - Used to find the element by selector caller needs to free the memory of returned value
     /// TODO: findById not supported
     /// Find by css, xpath, tagName
     pub fn findElement(self: *Self, selectorType: DriverTypes.SelectorTypes, comptime selectorName: []const u8) ![]const u8 {
@@ -294,13 +294,13 @@ pub const Driver = struct {
         const response = try Utils.executeCmds(3, self.allocator, &args);
         return response;
     }
-    pub fn waitForDriver(self: *Self) !void {
+    pub fn waitForDriver(self: *Self, waitTime: ?comptime_int) !void {
         const seconds = 10_000_000_000;
         try self.logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
         std.time.sleep(seconds);
         _ = try Utils.checkIfPortInUse(self.allocator, self.chromeDriverPort);
         const MAX_RETRIES = 3;
-        const waitSeconds = 15_000_000_000;
+        const waitSeconds = if (waitTime) |wwait| wwait else 15_000_000_000;
         var reTries: i32 = 0;
         while (!self.isDriverRunning) {
             if (MAX_RETRIES > 3) {
@@ -327,6 +327,7 @@ pub const Driver = struct {
         }
         if (self.isDriverRunning) {
             try self.logger.writeToStdOut();
+            try self.fileManager.writeToStdOut();
         }
     }
     fn getRequestUrl(

@@ -4,6 +4,7 @@ const Logger = @import("./lib/logger/logger.zig").Logger;
 const Utils = @import("./lib/utils/utils.zig");
 const Driver = @import("./driver/driver.zig").Driver;
 const DriverOptions = @import("./driver/types.zig");
+const Types = @import("./lib/main.zig").Types;
 
 // https://stackoverflow.com/questions/72122366/how-to-initialize-variadic-function-arguments-in-zig
 // https://www.reddit.com/r/Zig/comments/y5b2xw/anytype_vs_comptime_t/
@@ -42,14 +43,11 @@ const DriverOptions = @import("./driver/types.zig");
 //         print("RUNNING...", .{});
 //     }
 
-const F = struct { f: i32 = 12 };
-const G = struct { g: i32 = 12 };
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     var logger = try Logger.init("Logs");
-    try logger.info("Main::main()::", "program running...");
+    try logger.info("Main::main()::program running..", null);
     var driver = try Driver.init(allocator, logger, DriverOptions.Options{
         .chromeDriverExecPath = "/Users/matheusduarte/Desktop/LearnZig/chromeDriver/chromedriver-mac-x64/chromedriver",
         .chromeDriverPort = 42069,
@@ -58,14 +56,12 @@ pub fn main() !void {
     try driver.waitForDriver();
     try driver.launchWindow("https://jsonplaceholder.typicode.com/");
 
-    // const seconds = 10_000_000_000;
-    // try logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
-    // std.time.sleep(seconds);
-    // const elementID = try driver.findElement(DriverOptions.SelectorTypes.CSS_TAG, "text-6xl");
-    // print("ELEMENT_ID: {s}\n", .{elementID});
+    const seconds = 10_000_000_000;
+    try logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
+    std.time.sleep(seconds);
 
     defer {
-        // driver.deInit();
+        driver.deInit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
     }
