@@ -52,12 +52,6 @@ pub const Logger = struct {
         self.logDir.close();
         self.logFile.close();
     }
-    pub fn writeToStdOut(self: *Self) !void {
-        var buf: [1024]u8 = undefined;
-        const data = try self.logDir.readFile("driver.log", &buf);
-        const outw = std.io.getStdOut().writer();
-        try outw.print("{s}\n", .{data});
-    }
 };
 
 const LoggerData = struct {
@@ -95,7 +89,7 @@ const LoggerData = struct {
         self.time = timeStamp;
         try self.createJson(file, data);
     }
-    fn convertToString(_: *Self, bufLen: comptime_int, buf: *[bufLen]u8, arrayList: *std.ArrayList(u8), T: ?type, data: anytype) ![]const u8 {
+    fn convertToString(bufLen: comptime_int, buf: *[bufLen]u8, arrayList: *std.ArrayList(u8), T: ?type, data: anytype) ![]const u8 {
         if (T) |d| {
             const typeInfo = @typeInfo(d);
             if (typeInfo != .Null) {
@@ -132,7 +126,7 @@ const LoggerData = struct {
         var fbaArrayList = std.heap.FixedBufferAllocator.init(&bufArrayList);
         var arrayList = try std.ArrayList(u8).initCapacity(fbaArrayList.allocator(), 1024);
         defer arrayList.deinit();
-        const d = try self.convertToString(bufLen, &intBuf, &arrayList, @TypeOf(data), data);
+        const d = try convertToString(bufLen, &intBuf, &arrayList, @TypeOf(data), data);
         self.data = d;
         var buf: [1024]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);

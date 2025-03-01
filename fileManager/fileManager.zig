@@ -68,6 +68,12 @@ pub const FileManager = struct {
             try self.createScreenShotDir();
         }
     }
+    pub fn writeToStdOut(self: *Self) !void {
+        var buf: [1024]u8 = undefined;
+        const data = try self.driverOutFile.lreadFile(self.files.driverOutFile, &buf);
+        const outw = std.io.getStdOut().writer();
+        try outw.print("{s}\n", .{data});
+    }
     pub fn executeFiles(self: *Self, fileName: []const u8) !void {
         if (comptime builtIn.os.tag == .windows) {
             const argv = [3][]const u8{
