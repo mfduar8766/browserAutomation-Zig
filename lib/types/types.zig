@@ -1,6 +1,20 @@
 const std = @import("std");
 const Utils = @import("../utils/utils.zig");
 
+/// ChromeDriverConfigOptions - Options for setting up chromeDriver
+pub const ChromeDriverConfigOptions = struct {
+    /// chromeDriverExecPath - Path to chromeDriver exe file
+    chromeDriverExecPath: ?[]const u8 = undefined,
+    /// chromeDriverPort - Port chromeDriver will run on
+    chromeDriverPort: ?i32 = undefined,
+    /// chromeDriverVersion - Version of chromeDriver to use default is Stable
+    chromeDriverVersion: ?[]const u8 = "Stable",
+    /// args - ChromeDriver args
+    args: ?[][]const u8 = undefined,
+    /// chromeDriverOutFilePath - StdOut file for chromeDriver logs when running driver
+    chromeDriverOutFilePath: ?[]const u8 = undefined,
+};
+
 pub const LogLevels = enum(u2) {
     INFO = 0,
     WARNING = 1,

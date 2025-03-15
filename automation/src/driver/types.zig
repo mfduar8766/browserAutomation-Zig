@@ -1,12 +1,27 @@
 const std = @import("std");
-const Utils = @import("../lib/utils/utils.zig");
 
-pub const Options = struct {
+/// ChromeDriverConfigOptions - Options for setting up chromeDriver
+pub const ChromeDriverConfigOptions = struct {
+    /// chromeDriverExecPath - Path to chromeDriver exe file
     chromeDriverExecPath: ?[]const u8 = undefined,
+    /// chromeDriverPort - Port chromeDriver will run on
     chromeDriverPort: ?i32 = undefined,
-    chromeDriverVersion: ?[]const u8 = undefined,
+    /// chromeDriverVersion - Version of chromeDriver to use default is Stable
+    chromeDriverVersion: ?[]const u8 = "Stable",
+    /// args - ChromeDriver args
     args: ?[][]const u8 = undefined,
+    /// chromeDriverOutFilePath - StdOut file for chromeDriver logs when running driver
     chromeDriverOutFilePath: ?[]const u8 = undefined,
+};
+
+/// WaitOptions - ChromeDriver options for wait for driver to start
+pub const WaitOptions = struct {
+    /// maxRetries - Number of attempts to PING chromeDriver to see if its up and running
+    maxRetries: comptime_int = 3,
+    /// driverWaitTime - Time to wait for chromeDriver exe to start is 10 seconds
+    driverWaitTime: comptime_int = 10_000_000_000,
+    /// reTryTimer - Amount of time before re tries expire is 15 seconds
+    reTryTimer: comptime_int = 15_000_000_000,
 };
 
 pub const SelectorTypes = enum(u8) {
@@ -41,11 +56,13 @@ pub const RequestUrlPaths = enum(u8) {
     SCREEN_SHOT,
 };
 
-/// ChromeDriver response to /sessions API request
+/// ChromeDriver response ito /sessions API request
 pub const ChromeDriverSessionResponse = struct {
     value: struct {
-        capabilities: Capabilities,
-        sessionId: []const u8,
+        capabilities: ?Capabilities = null,
+        sessionId: ?[]const u8 = null,
+        @"error": ?[]const u8 = null,
+        message: ?[]const u8 = null,
     },
 };
 
