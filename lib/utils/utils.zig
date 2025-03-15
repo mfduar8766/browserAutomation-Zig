@@ -5,13 +5,9 @@ const io = std.io;
 const time = std.time;
 const Allocator = std.mem.Allocator;
 const Types = @import("../types/types.zig");
-const eql = std.mem.eql;
-const eqlAny = std.meta.eql;
 const process = std.process;
 const print = std.debug.print;
-const assert = std.debug.assert;
 const builtIn = @import("builtin");
-const startsWith = std.mem.startsWith;
 
 pub const ExecCmdResponse = struct {
     exitCode: i32 = 0,
@@ -153,6 +149,7 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     return exists;
 }
 
+//TODO: Fix this shit
 pub fn createFileName(
     bufLen: comptime_int,
     buf: *[bufLen]u8,
@@ -294,14 +291,14 @@ pub fn executeCmds(argsLen: comptime_int, allocator: std.mem.Allocator, args: *c
     var child = process.Child.init(args, allocator);
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
-    var stdout = std.ArrayList(u8).init(allocator);
-    var stderr = std.ArrayList(u8).init(allocator);
+    var stdout = try std.ArrayListUnmanaged(u8).initCapacity(allocator, 1024);
+    var stderr = try std.ArrayListUnmanaged(u8).initCapacity(allocator, 1024);
     defer {
-        stdout.deinit();
-        stderr.deinit();
+        stdout.deinit(allocator);
+        stderr.deinit(allocator);
     }
     try child.spawn();
-    try child.collectOutput(&stdout, &stderr, 1024);
+    try child.collectOutput(allocator, &stdout, &stderr, 1024);
     const term = try child.wait();
     switch (term) {
         .Exited => |code| {
@@ -361,7 +358,7 @@ pub fn checkExitCode(code: i32, message: []const u8) !void {
 
 pub fn printLn(comptime message: []const u8, args: anytype) void {
     const newMessage = message ++ "\n";
-    if (@typeInfo(@TypeOf(args)) == .Struct) {
+    if (@typeInfo(@TypeOf(args)) == .@"struct") {
         print(newMessage, args);
     } else {
         print(newMessage, .{args});
@@ -372,8 +369,8 @@ pub fn formatString(bufLen: comptime_int, buf: *[bufLen]u8, comptime fmt: []cons
     return @as([]const u8, try std.fmt.bufPrint(buf, fmt, args));
 }
 
-pub fn useAssert(value: bool) void {
-    assert(value);
+pub fn assert(value: bool) void {
+    return std.mem.assert(value);
 }
 
 pub fn intToString(T: type, buf: []const u8, base: ?u8) !T {
@@ -413,7 +410,7 @@ pub fn deleteFileIfExists(cwd: std.fs.Dir, fileName: []const u8) !void {
         switch (e) {
             error.FileNotFound => {
                 exists = false;
-                printLn("Utils::deleteFileIfExists()::error: {s}", @errorName(e));
+                printLn("Utils::deleteFileIfExists()::error: {s}, fileName:{s}", .{ @errorName(e), fileName });
             },
             else => {
                 printLn("Utils::deleteFileIfExists()::exists, deleting file: {s} and re creating it", fileName);
@@ -428,7 +425,7 @@ pub fn deleteFileIfExists(cwd: std.fs.Dir, fileName: []const u8) !void {
 pub fn getOsType() []const u8 {
     return switch (comptime builtIn.os.tag) {
         .macos => {
-            const archType = builtIn.target.os.tag.archName(builtIn.cpu.arch);
+            const archType = builtIn.cpu.arch.genericName();
             if (startsWith(u8, archType, "x")) {
                 return Types.PlatForms.getOS(2);
             }
@@ -444,6 +441,85 @@ pub fn getOsType() []const u8 {
         .linux => Types.PlatForms.getOS(0),
         else => "",
     };
+}
+
+///TODO: Figure out how to add format option to logger
+/// Currently format is breaking no idea why.
+/// Even with if (!isDigitFormat and isDigit) it still crashes even if isDigitFormat === false and isDigit is === true
+pub fn convertToString(
+    intBufLen: comptime_int,
+    intBuf: *[intBufLen]u8,
+    // messageBuf: *[1024]u8,
+    arrayList: *std.ArrayList(u8),
+    T: type,
+    data: anytype,
+    comptime message: []const u8,
+) !struct { data: ?[]const u8, message: []const u8 } {
+    const typeInfo = @typeInfo(T);
+    if (typeInfo != .null) {
+        const isDigitFormat = std.mem.containsAtLeast(u8, message, 1, "{d}");
+        // const isStringFormat = std.mem.containsAtLeast(u8, message, 1, "{s}");
+        const isDigit = (typeInfo == .comptime_float or typeInfo == .comptime_int or typeInfo == .int or typeInfo == .float);
+        // print("BEFORE IF: isDigitFormat:{any} isStringFormat:{any} T:{any} typeInfo:{any} isDigit:{any}\n", .{
+        //     isDigitFormat,
+        //     isStringFormat,
+        //     T,
+        //     typeInfo,
+        //     isDigit,
+        // });
+        if (isDigit and !isDigitFormat) {
+            return .{ .data = try formatString(intBufLen, intBuf, "{d}", .{@as(T, data)}), .message = message };
+        } else if (typeInfo == .@"struct") {
+            try std.json.stringify(@as(T, data), .{ .emit_null_optional_fields = false }, arrayList.writer());
+            return .{ .data = @as([]const u8, arrayList.items), .message = message };
+        } else if (typeInfo == .pointer) {
+            const isConst = typeInfo.pointer.is_const;
+            const child = typeInfo.pointer.child;
+            if (isConst and (child == u8 or child == [data.len:0]u8 or T == *const [data.len:0]u8 or T == []const u8)) {
+                // if (isStringFormat) {
+                //     return .{ .data = null, .message = try formatString(1024, messageBuf, message, .{@as([]const u8, data)}) };
+                // }
+                return .{ .data = @as([]const u8, data), .message = message };
+            }
+        }
+        // else if (isDigitFormat and isDigit) {
+        //     return .{ .data = @as(T, data), .message = try formatString(1024, messageBuf, message, .{@as(T, data)}) };
+        // }
+        // else if (isStringFormat and typeInfo == .pointer) {
+        //     print("IS FORMAT\n", .{});
+        //     const isConst = typeInfo.pointer.is_const;
+        //     const child = typeInfo.pointer.child;
+        //     if (isConst and (child == u8 or child == [data.len:0]u8 or T == *const [data.len:0]u8 or T == []const u8)) {
+        //         print("GGGG\n", .{});
+        // return .{ .data = null, .message = try formatString(1024, messageBuf, message, .{@as([]const u8, data)}) };
+        //     }
+    }
+    return .{ .data = null, .message = message };
+}
+
+pub fn isString(typeInfo: std.builtin.Type, data: anytype) bool {
+    const isConst = typeInfo.pointer.is_const;
+    const child = typeInfo.pointer.child;
+    const size = typeInfo.pointer.size;
+    if (isConst and @TypeOf(size) == std.builtin.Type.Pointer.Size) {
+        if (child == u8 or child == [data.len:0]u8) {
+            return true;
+        }
+        return true;
+    }
+    return false;
+}
+
+pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
+    return std.mem.startsWith(T, haystack, needle);
+}
+
+pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    return std.mem.eql(T, a, b);
+}
+
+pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
+    return std.mem.endsWith(T, haystack, needle);
 }
 
 // pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {

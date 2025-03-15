@@ -9,7 +9,7 @@ pub const Http = struct {
     const Self = @This();
     const Allocator = std.mem.Allocator;
     const ReqOptions = struct {
-        maxReaderSize: usize = 2 * 1042 * 1024,
+        maxReaderSize: usize = 1024 * 8,
     };
     allocator: Allocator,
     client: std.http.Client,
@@ -17,7 +17,7 @@ pub const Http = struct {
 
     pub fn init(allocator: std.mem.Allocator, reqOpts: ?ReqOptions) Self {
         const client = Client{ .allocator = allocator };
-        var httpClient = Http{ .allocator = allocator, .client = client, .reqOpts = undefined };
+        var httpClient = Http{ .allocator = allocator, .client = client, .reqOpts = ReqOptions{} };
         if (reqOpts) |op| {
             httpClient.reqOpts.maxReaderSize = op.maxReaderSize;
         }
@@ -50,12 +50,10 @@ pub const Http = struct {
     pub fn post(self: *Self, url: []const u8, options: RequestOptions, payload: ?[]const u8, maxReaderSize: ?usize) ![]u8 {
         std.debug.print("Http::POST()::making a POST request to: {s}\n", .{url});
         const uriStr = try Uri.parse(url);
-
         var req = try self.client.open(.POST, uriStr, options);
         if (payload) |p| {
             req.transfer_encoding = .{ .content_length = p.len };
         }
-
         defer req.deinit();
         try req.send();
         if (payload) |p| {
@@ -65,7 +63,7 @@ pub const Http = struct {
         try req.wait();
         std.debug.print("Http::POST()::StatusCode: {d}, bodyLen :{?d}\n", .{ req.response.status, req.response.content_length });
         if (req.response.status != http.Status.ok) {
-            return http.Client.RequestError.NetworkUnreachable;
+            std.debug.print("Http::POST()::received error:{s}\n", .{req.response.reason});
         }
         var maxSize: usize = self.reqOpts.maxReaderSize;
         if (maxReaderSize) |max| {

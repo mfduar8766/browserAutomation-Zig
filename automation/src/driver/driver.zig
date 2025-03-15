@@ -1,24 +1,19 @@
 const std = @import("std");
-const Http = @import("../lib/main.zig").Http;
-const Logger = @import("../lib/main.zig").Logger;
+const Http = @import("common").Http;
+const Logger = @import("common").Logger;
 const builtIn = @import("builtin");
-const Types = @import("../lib/main.zig").Types;
-const eql = std.mem.eql;
-const startsWith = std.mem.startsWith;
-const Utils = @import("../lib/main.zig").Utils;
+const Types = @import("common").Types;
+const Utils = @import("common").Utils;
 const DriverTypes = @import("./types.zig");
 const process = std.process;
 const FileManager = @import("../fileManager/fileManager.zig").FileManager;
-
-// kill -9 PID
-// p kill -9 chromedri
 
 pub const Driver = struct {
     const Self = @This();
     const Allocator = std.mem.Allocator;
     const CHROME_DRIVER_DOWNLOAD_URL: []const u8 = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json";
     comptime chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}",
-    chromeDriverPort: i32 = 42060,
+    chromeDriverPort: i32 = 4200,
     allocator: Allocator,
     logger: Logger = undefined,
     chromeDriverVersion: []const u8 = Types.ChromeDriverVersion.getDriverVersion(0),
@@ -27,7 +22,7 @@ pub const Driver = struct {
     isDriverRunning: bool = false,
     fileManager: FileManager = undefined,
 
-    pub fn init(allocator: Allocator, logger: ?Logger, options: ?DriverTypes.Options) !Self {
+    pub fn init(allocator: Allocator, logger: ?Logger, options: ?DriverTypes.ChromeDriverConfigOptions) !Self {
         var driver = Driver{
             .allocator = allocator,
         };
@@ -57,7 +52,9 @@ pub const Driver = struct {
         if (url.len == 0) {
             @panic("Driver::launchWindow()::url is empty cannot navigate to page, exiting program...");
         }
-        try self.waitForDriver();
+        if (!self.isDriverRunning) {
+            @panic("Driver::launchWindow()::driver is not running...");
+        }
         if (self.isDriverRunning) {
             try self.getSessionID();
             try self.navigateToSite(url);
@@ -92,8 +89,8 @@ pub const Driver = struct {
         }
         try self.fileManager.executeShFiles(self.fileManager.files.deleteDriverDetachedSh);
     }
+    /// TODO: findById not supported, eed to add support for this.
     /// findElement - Used to find the element by selector caller needs to free the memory of returned value
-    /// TODO: findById not supported
     /// Find by css, xpath, tagName
     pub fn findElement(self: *Self, selectorType: DriverTypes.SelectorTypes, comptime selectorName: []const u8) ![]const u8 {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
@@ -208,10 +205,13 @@ pub const Driver = struct {
             req.deinit();
         }
     }
+    pub fn stopDriver(self: *Self) !void {
+        try self.fileManager.executeFiles(self.fileManager.files.deleteDriverDetachedSh);
+    }
     fn getSessionID(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
         defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 1024 });
+        var req = Http.init(self.allocator, null);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -225,14 +225,21 @@ pub const Driver = struct {
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
-        const body = try req.post(urlApi, options, arrayList.items, 892);
+        const body = try req.post(urlApi, options, arrayList.items, 2081);
         const parsed = try std.json.parseFromSlice(DriverTypes.ChromeDriverSessionResponse, self.allocator, body, .{ .ignore_unknown_fields = true });
+        if (parsed.value.value.@"error") |e| {
+            try self.logger.err("Driver::getSessionID()::", .{
+                .err = e,
+                .message = parsed.value.value.message,
+            });
+            try self.stopDriver();
+            @panic(parsed.value.value.message.?);
+        }
         defer parsed.deinit();
         defer self.allocator.free(body);
-        const bytes = try self.allocator.alloc(u8, parsed.value.value.sessionId.len);
-        std.mem.copyForwards(u8, bytes, parsed.value.value.sessionId);
+        const bytes = try self.allocator.alloc(u8, parsed.value.value.sessionId.?.len);
+        std.mem.copyForwards(u8, bytes, parsed.value.value.sessionId.?);
         self.sessionID = @as([]const u8, bytes);
-        std.debug.print("SESSION-ID: {s}\n", .{self.sessionID});
     }
     fn navigateToSite(self: *Self, url: []const u8) !void {
         try self.logger.info("Driver::navigateToSite()::navigating to", url);
@@ -243,7 +250,6 @@ pub const Driver = struct {
         defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
         defer req.deinit();
-
         var buf: [1024]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var arrayList = std.ArrayList(u8).init(fba.allocator());
@@ -256,9 +262,8 @@ pub const Driver = struct {
         const body = try req.post(urlApi, options, arrayList.items, null);
         defer self.allocator.free(body);
     }
-    fn checkOptions(self: *Self, options: ?DriverTypes.Options) !void {
+    fn checkOptions(self: *Self, options: ?DriverTypes.ChromeDriverConfigOptions) !void {
         if (options) |op| {
-            try self.fileManager.createFiles(op);
             if (op.chromeDriverPort) |port| {
                 const code = try self.checkIfPortInUse(port);
                 if (code.exitCode == 0) {
@@ -273,9 +278,9 @@ pub const Driver = struct {
                 const stable = Types.ChromeDriverVersion.getDriverVersion(0);
                 const beta = Types.ChromeDriverVersion.getDriverVersion(1);
                 const dev = Types.ChromeDriverVersion.getDriverVersion(2);
-                const isCorrecrtVersion = (eql(u8, version, stable) or eql(u8, version, beta) or eql(u8, version, dev));
+                const isCorrecrtVersion = (Utils.eql(u8, version, stable) or Utils.eql(u8, version, beta) or Utils.eql(u8, version, dev));
                 if (!isCorrecrtVersion) {
-                    try self.logger.warn("Driver::init()::incorrect chromeDeiver version specified defaulting to Stable...", null);
+                    @panic("Driver::checkOptions()::incorrect driver version specefied. Expected (Stable, Beta, Dev)");
                 } else {
                     self.chromeDriverVersion = op.chromeDriverVersion.?;
                 }
@@ -283,6 +288,7 @@ pub const Driver = struct {
             if (op.chromeDriverExecPath) |path| {
                 if (path.len > 0) self.chromeDriverExecPath = path;
             }
+            try self.fileManager.createFiles(op);
         }
     }
     fn checkIfPortInUse(self: *Self, port: i32) !Utils.ExecCmdResponse {
@@ -294,19 +300,17 @@ pub const Driver = struct {
         const response = try Utils.executeCmds(3, self.allocator, &args);
         return response;
     }
-    pub fn waitForDriver(self: *Self, waitTime: ?comptime_int) !void {
-        const seconds = 10_000_000_000;
-        try self.logger.info("Driver::waitForDriver()::sleeping for 10 seconds waiting for driver to start....", null);
-        std.time.sleep(seconds);
+    pub fn waitForDriver(self: *Self, waitOptions: DriverTypes.WaitOptions) !void {
+        try self.logger.info("Driver::waitForDriver()::sleeping for {d} seconds waiting for driver to start....", waitOptions.driverWaitTime);
+        std.time.sleep(waitOptions.driverWaitTime);
         _ = try Utils.checkIfPortInUse(self.allocator, self.chromeDriverPort);
         const MAX_RETRIES = 3;
-        const waitSeconds = if (waitTime) |wwait| wwait else 15_000_000_000;
         var reTries: i32 = 0;
         while (!self.isDriverRunning) {
-            if (MAX_RETRIES > 3) {
+            if (MAX_RETRIES > waitOptions.maxRetries) {
                 @panic("Driver::waitForDriver()::failed to start chromeDriver, exiting program...");
             }
-            try self.logger.info("Driver::waitForChromeDriver()::sending PING to chromeDriver...", null);
+            try self.logger.info("Driver::waitForDriver()::sending PING to chromeDriver...", null);
             const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
             var req = Http.init(self.allocator, null);
             const bufLen = 250;
@@ -323,10 +327,9 @@ pub const Driver = struct {
                 break;
             }
             reTries += 1;
-            std.time.sleep(waitSeconds);
+            std.time.sleep(waitOptions.reTryTimer);
         }
         if (self.isDriverRunning) {
-            try self.logger.writeToStdOut();
             try self.fileManager.writeToStdOut();
         }
     }

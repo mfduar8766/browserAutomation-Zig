@@ -6,11 +6,15 @@
     //
     // It is redundant to include "zig" in this name because it is already
     // within the Zig package namespace.
-    .name = "example",
+    .name = .example,
 
     // This is a [Semantic Version](https://semver.org/).
     // In a future version of Zig it will be used for package deduplication.
     .version = "0.0.0",
+
+    .fingerprint = 0x6eec9b9f03297c0a,
+
+    .minimum_zig_version = "0.14.0",
 
     // This field is optional.
     // This is currently advisory only; Zig does not yet do anything

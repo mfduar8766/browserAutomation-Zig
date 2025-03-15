@@ -1,12 +1,10 @@
 const std = @import("std");
-const DriverTypes = @import("../driver/types.zig");
 const builtIn = @import("builtin");
-const Utils = @import("../lib/utils/utils.zig");
-const Logger = @import("../lib/logger/logger.zig").Logger;
-const Http = @import("../lib/http/http.zig").Http;
-const Types = @import("../lib/types/types.zig");
-const eql = std.mem.eql;
 const time = std.time;
+const Logger = @import("../logger/logger.zig").Logger;
+const Types = @import("../types/types.zig");
+const Utils = @import("../utils/utils.zig");
+const Http = @import("../http/http.zig").Http;
 
 const Files = struct {
     startChromeDriverSh: []const u8,
@@ -18,9 +16,11 @@ const Files = struct {
     loggerFileDir: []const u8,
     driverOutFile: []const u8,
     screenShotDir: []const u8,
+    startExampleUISh: []const u8,
+    startExampleUIShW: []const u8,
 };
 
-fn createFileStructs() Files {
+fn createFileNamesStruct() Files {
     return Files{
         .startChromeDriverSh = "./startChromeDriver.sh",
         .startDriverDetachedSh = "./startDriverDetached.sh",
@@ -31,6 +31,8 @@ fn createFileStructs() Files {
         .loggerFileDir = "Logs",
         .driverOutFile = "driver.log",
         .screenShotDir = "screenShots",
+        .startExampleUISh = "./startUI.sh",
+        .startExampleUIShW = ".\\startUI.sh",
     };
 }
 
@@ -39,7 +41,7 @@ pub const FileManager = struct {
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
     driverOutFile: std.fs.File = undefined,
-    files: Files = createFileStructs(),
+    files: Files = createFileNamesStruct(),
     screenShotsDir: std.fs.Dir = undefined,
     pub fn init(allocator: std.mem.Allocator, logger: Logger) FileManager {
         return FileManager{
@@ -55,11 +57,11 @@ pub const FileManager = struct {
     fn getAllocator(self: *Self) std.mem.Allocator {
         return self.arena.allocator();
     }
-    pub fn createFiles(self: *Self, chromeDriverOptions: DriverTypes.Options) !void {
+    pub fn createFiles(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
         if (comptime builtIn.os.tag == .windows) {
             try self.createStartDriverDetachedSh(self.files.startDriverDetachedShW);
             try self.deleteDriverDetachedSh(self.files.deleteDriverDetachedShW);
-            try self.createStartChromeDriverSh(self.files.startChromeDriverSh, chromeDriverOptions);
+            try self.createStartChromeDriverSh(self.files.startChromeDriverShW, chromeDriverOptions);
             try self.createScreenShotDir();
         } else if (comptime builtIn.os.tag == .macos or builtIn.os.tag == .linux) {
             try self.createStartDriverDetachedSh(self.files.startDriverDetachedSh);
@@ -70,7 +72,7 @@ pub const FileManager = struct {
     }
     pub fn writeToStdOut(self: *Self) !void {
         var buf: [1024]u8 = undefined;
-        const data = try self.driverOutFile.lreadFile(self.files.driverOutFile, &buf);
+        const data = try self.logger.logDir.readFile(self.files.driverOutFile, &buf);
         const outw = std.io.getStdOut().writer();
         try outw.print("{s}\n", .{data});
     }
@@ -122,7 +124,11 @@ pub const FileManager = struct {
     pub fn saveScreenShot(self: *Self, fileName: ?[]const u8, bytes: []const u8) !void {
         var dest: [347828]u8 = undefined;
         try std.base64.standard.Decoder.decode(&dest, bytes);
+        std.debug.print("FILENAME:{s}\n", .{fileName.?});
         if (fileName) |name| {
+            if (!std.mem.containsAtLeast(u8, name, 1, ".")) {
+                @panic("FileManager::saveScreenShot()::file must contain .png|.jpeg|.txt|.log");
+            }
             try Utils.deleteFileIfExists(self.screenShotsDir, name);
             const file = try self.screenShotsDir.createFile(name, .{});
             defer file.close();
@@ -136,13 +142,15 @@ pub const FileManager = struct {
                 today.month,
                 today.day,
             });
-            const name = try Utils.createFileName(
-                100,
-                &buf,
-                "{s}{s}",
-                timeStr,
-                Types.FileExtensions.PNG,
-            );
+            //TODO:Fix fileName func to create files with extensions
+            // const name = try Utils.createFileName(
+            //     100,
+            //     &buf,
+            //     "{s}{s}",
+            //     timeStr,
+            //     Types.FileExtensions.PNG,
+            // );
+            const name = try Utils.formatString(100, &buf, "{s}.{s}", .{ timeStr, @tagName(Types.FileExtensions.PNG) });
             try Utils.deleteFileIfExists(self.screenShotsDir, name);
             const file = try self.screenShotsDir.createFile(name, .{});
             defer file.close();
@@ -152,24 +160,24 @@ pub const FileManager = struct {
     fn downoadChromeDriverZip(self: *Self, res: Types.ChromeDriverResponse) !void {
         var chromeDriverURL: []const u8 = "";
         const tag = Utils.getOsType();
-        if (tag.len == 0 or eql(u8, tag, "UNKNOWN")) {
+        if (tag.len == 0 or Utils.eql(u8, tag, "UNKNOWN")) {
             try self.logger.fatal("FileManager::downoadChromeDriverZip()::cannot find OSType", tag);
             @panic("FileManager::downoadChromeDriverZip()::osType does not exist exiting program...");
         }
         for (res.channels.Stable.downloads.chromedriver) |driver| {
-            if (eql(u8, driver.platform, tag)) {
+            if (Utils.eql(u8, driver.platform, tag)) {
                 chromeDriverURL = driver.url;
                 break;
             }
         }
         var arrayList = try std.ArrayList([]const u8).initCapacity(self.getAllocator(), 100);
         defer arrayList.deinit();
-        var t = std.mem.split(u8, chromeDriverURL, "/");
+        var t = std.mem.splitAny(u8, chromeDriverURL, "/");
         while (t.next()) |value| {
             try arrayList.append(value);
         }
         const chromeDriverFileName = arrayList.items[arrayList.items.len - 1];
-        if (chromeDriverFileName.len == 0 or eql(u8, chromeDriverFileName, "UNKNOWN")) {
+        if (chromeDriverFileName.len == 0 or Utils.eql(u8, chromeDriverFileName, "UNKNOWN")) {
             @panic("FileManager::downoadChromeDriverZip()::wrong osType exiting program...");
         }
         const serverHeaderBuf: []u8 = try self.getAllocator().alloc(u8, 1024 * 8);
@@ -217,12 +225,15 @@ pub const FileManager = struct {
         try startDriverDetachedSh.chmod(777);
         const fileData: []const u8 =
             \\#!/bin/bash
+            \\# Kill chromeDriver
+            \\echo "killing chromeDriver..."
+            \\pkill -9 chromedri
             \\# Define the screen session title
             \\session_title="chromeDriverSession"
             \\# Kill existing session with same title if it exists
             \\if screen -ls | grep -q "$session_title"; then
-            \\  echo "screen $session_title is running, restarting session"
-            \\  screen -S $session_title -X quit
+            \\  echo "screen $session_title is currently running, killing session and starting a new one"
+            \\  screen -XS $session_title quit
             \\fi
             \\# Start a new screen session with the title 'web_server' and run the command to start the server
             \\screen -dmS $session_title bash -c "chmod +x ./startChromeDriver.sh && ./startChromeDriver.sh; exec bash"
@@ -240,12 +251,15 @@ pub const FileManager = struct {
             \\# Define the title you're looking for
             \\session_title="chromeDriverSession"
             \\# Get the session ID by matching the title
+            \\# Kill chromeDriver
+            \\echo "killing chromeDriver..."
+            \\pkill -9 chromedri
             \\session_id=$(screen -ls | grep "$session_title" | awk '{print $1}' | cut -d'.' -f1)
             \\# Check if the session was found
             \\if [ -n "$session_id" ]; then
             \\  echo "Killing screen session: $session_id"
             \\  # Kill the screen session
-            \\  screen -S "$session_id" -X quit
+            \\  screen -XS "$session_id" quit
             \\else
             \\ echo "No screen session found with title: $session_title"
             \\fi
@@ -272,7 +286,7 @@ pub const FileManager = struct {
         }
         return chromeDriverLogFilePath;
     }
-    fn createStartChromeDriverSh(self: *Self, fileName: []const u8, chromeDriverOptions: DriverTypes.Options) !void {
+    fn createStartChromeDriverSh(self: *Self, fileName: []const u8, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
         const cwd = Utils.getCWD();
         const chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.chromeDriverOutFilePath);
         try Utils.deleteFileIfExists(cwd, fileName);
@@ -280,18 +294,21 @@ pub const FileManager = struct {
         try startChromeDriver.chmod(777);
         var chromeDriverPathArray = try std.ArrayList([]const u8).initCapacity(self.getAllocator(), 1024);
         var splitChromePath = std.mem.splitSequence(u8, chromeDriverOptions.chromeDriverExecPath.?, "/");
-
         while (splitChromePath.next()) |next| {
             try chromeDriverPathArray.append(next);
         }
-        const index = Utils.indexOf([][]const u8, chromeDriverPathArray.items, []const u8, "chromeDriver");
-        if (index == -1) {
-            @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver folder, exiting program...");
-        }
-
         const chromeDriverExec = chromeDriverPathArray.pop();
-        const chromeDriverExecFolderIndex = chromeDriverPathArray.items[@as(usize, @intCast(index))..];
-        const chromeDriverFolderPath = try std.mem.join(self.getAllocator(), "/", chromeDriverExecFolderIndex);
+        var exeFileName: []const u8 = "";
+        if (chromeDriverExec) |exe| {
+            exeFileName = exe;
+            if (!Utils.eql(u8, exe, "chromedriver")) {
+                @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
+            }
+        }
+        if (exeFileName.len == 0) {
+            @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
+        }
+        const chromeDriverFolderPath = try std.mem.join(self.getAllocator(), "/", chromeDriverPathArray.items);
         var buf4: [1024]u8 = undefined;
         const fileContents =
             \\#!/bin/bash
@@ -301,8 +318,8 @@ pub const FileManager = struct {
         ;
         const formattedFileContents = try Utils.formatString(1024, &buf4, fileContents, .{
             chromeDriverFolderPath,
-            chromeDriverExec,
-            chromeDriverExec,
+            exeFileName,
+            exeFileName,
             chromeDriverOptions.chromeDriverPort.?,
             chromeDriverLogFilePath,
         });
