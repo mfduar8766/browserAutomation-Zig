@@ -40,7 +40,7 @@ pub const SelectorTypes = enum(u8) {
     }
 };
 
-pub const RequestUrlPaths = enum(u8) {
+pub const RequestUrlPaths = enum {
     NEW_SESSION,
     DELETE_SESSION,
     STATUS,
@@ -54,6 +54,7 @@ pub const RequestUrlPaths = enum(u8) {
     GET_ELEMENT_TEXT,
     CLICK_ELEMENT,
     SCREEN_SHOT,
+    SET_WINDOW_RECT,
 };
 
 /// ChromeDriver response ito /sessions API request
@@ -150,4 +151,9 @@ pub const FindElementBy = struct {
 
 pub const ScreenShotResponse = struct {
     value: []const u8,
+};
+
+pub const SetWindowHeightAndWidth = struct {
+    width: i32,
+    height: i32,
 };
