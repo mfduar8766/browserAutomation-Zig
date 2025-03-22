@@ -6,43 +6,59 @@ const Types = @import("../types/types.zig");
 const Utils = @import("../utils/utils.zig");
 const Http = @import("../http/http.zig").Http;
 
-const Files = struct {
-    startChromeDriverSh: []const u8,
-    startDriverDetachedSh: []const u8,
-    deleteDriverDetachedSh: []const u8,
-    startChromeDriverShW: []const u8,
-    startDriverDetachedShW: []const u8,
-    deleteDriverDetachedShW: []const u8,
-    loggerFileDir: []const u8,
-    driverOutFile: []const u8,
-    screenShotDir: []const u8,
-    startExampleUISh: []const u8,
-    startExampleUIShW: []const u8,
+pub const Actions = enum {
+    ///startChromeDriver - ./startChromeDriver.sh
+    startChromeDriver,
+    ///startDriverDetached - ./startDriverDetached.sh
+    startDriverDetached,
+    ///deleteDriverDetached - ./deleteDriverDetached.sh
+    deleteDriverDetached,
+    ///startUIDetached - ./startUIDetached.sh
+    startUIDetached,
+    ///startExampleUISh - ./startExampleUI.sh
+    startExampleUISh,
 };
 
-fn createFileNamesStruct() Files {
-    return Files{
-        .startChromeDriverSh = "./startChromeDriver.sh",
-        .startDriverDetachedSh = "./startDriverDetached.sh",
-        .deleteDriverDetachedSh = "./deleteDriverDetached.sh",
-        .startChromeDriverShW = ".\\startChromeDriver.sh",
-        .startDriverDetachedShW = ".\\startDriverDetached.sh",
-        .deleteDriverDetachedShW = ".\\deleteDriverDetached.sh",
-        .loggerFileDir = "Logs",
-        .driverOutFile = "driver.log",
-        .screenShotDir = "screenShots",
-        .startExampleUISh = "./startUI.sh",
-        .startExampleUIShW = ".\\startUI.sh",
-    };
-}
+const Files = struct {
+    ///startChromeDriverSh - ./startChromeDriver.sh
+    comptime startChromeDriverSh: []const u8 = "./startChromeDriver.sh",
+    ///startDriverDetachedSh - startDriverDetached.sh
+    comptime startDriverDetachedSh: []const u8 = "./startDriverDetached.sh",
+    ///createDeleteDriverDetachedSh - deleteDriverDetached.sh
+    comptime createDeleteDriverDetachedSh: []const u8 = "./deleteDriverDetached.sh",
+    ///startChromeDriverShW - .\\startChromeDriver.sh
+    comptime startChromeDriverShW: []const u8 = ".\\startChromeDriver.sh",
+    ///startDriverDetachedShW - .\\startDriverDetached.sh
+    comptime startDriverDetachedShW: []const u8 = ".\\startDriverDetached.sh",
+    ///deleteDriverDetachedShW - .\\deleteDriverDetached.sh
+    comptime deleteDriverDetachedShW: []const u8 = ".\\deleteDriverDetached.sh",
+    ///loggerFileDir = Logs
+    loggerFileDir: []const u8 = "Logs",
+    ///driverOutFile - driver.log
+    comptime driverOutFile: []const u8 = "driver.log",
+    ///screenShotDir - screenShots
+    comptime screenShotDir: []const u8 = "screenShots",
+    ///startExampleUISh - ./startUI.sh
+    comptime startExampleUISh: []const u8 = "./startUI.sh",
+    ///startExampleUIShW - .\\startUI.sh
+    comptime startExampleUIShW: []const u8 = ".\\startUI.sh",
+    ///startExampleDetachedSh - ./startExampleDetachedShW.sh
+    comptime startExampleDetachedSh: []const u8 = "./startUIDetached.sh",
+    ///startExampleDetachedShW - .\\startExampleDetachedShW.sh
+    comptime startExampleDetachedShW: []const u8 = ".\\startUIDetached.sh",
+};
 
 pub const FileManager = struct {
     const Self = @This();
+    const chromeDriverSession: []const u8 = "chromeDriverSession";
+    const chromedriver: []const u8 = "chromedriver";
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
     driverOutFile: std.fs.File = undefined,
-    files: Files = createFileNamesStruct(),
+    files: Files = Files{},
     screenShotsDir: std.fs.Dir = undefined,
+    comptime osType: []const u8 = Utils.getOsType(),
+
     pub fn init(allocator: std.mem.Allocator, logger: Logger) FileManager {
         return FileManager{
             .logger = logger,
@@ -58,17 +74,10 @@ pub const FileManager = struct {
         return self.arena.allocator();
     }
     pub fn createFiles(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
-        if (comptime builtIn.os.tag == .windows) {
-            try self.createStartDriverDetachedSh(self.files.startDriverDetachedShW);
-            try self.deleteDriverDetachedSh(self.files.deleteDriverDetachedShW);
-            try self.createStartChromeDriverSh(self.files.startChromeDriverShW, chromeDriverOptions);
-            try self.createScreenShotDir();
-        } else if (comptime builtIn.os.tag == .macos or builtIn.os.tag == .linux) {
-            try self.createStartDriverDetachedSh(self.files.startDriverDetachedSh);
-            try self.deleteDriverDetachedSh(self.files.deleteDriverDetachedSh);
-            try self.createStartChromeDriverSh(self.files.startChromeDriverSh, chromeDriverOptions);
-            try self.createScreenShotDir();
-        }
+        try self.createStartChromeDriverSh(chromeDriverOptions);
+        try self.createStartDriverDetachedSh();
+        try self.createDeleteDriverDetachedSh();
+        try self.createScreenShotDir();
     }
     pub fn writeToStdOut(self: *Self) !void {
         var buf: [1024]u8 = undefined;
@@ -124,7 +133,6 @@ pub const FileManager = struct {
     pub fn saveScreenShot(self: *Self, fileName: ?[]const u8, bytes: []const u8) !void {
         var dest: [347828]u8 = undefined;
         try std.base64.standard.Decoder.decode(&dest, bytes);
-        std.debug.print("FILENAME:{s}\n", .{fileName.?});
         if (fileName) |name| {
             if (!std.mem.containsAtLeast(u8, name, 1, ".")) {
                 @panic("FileManager::saveScreenShot()::file must contain .png|.jpeg|.txt|.log");
@@ -134,6 +142,7 @@ pub const FileManager = struct {
             defer file.close();
             try file.writeAll(&dest);
         } else {
+            try self.logger.warn("FileManager::saveScreenShot()::file extension type not supported default to .PNG", null);
             var buf: [100]u8 = undefined;
             const today = Utils.fromTimestamp(@intCast(time.timestamp()));
             var buf2: [10]u8 = undefined;
@@ -142,20 +151,88 @@ pub const FileManager = struct {
                 today.month,
                 today.day,
             });
-            //TODO:Fix fileName func to create files with extensions
-            // const name = try Utils.createFileName(
-            //     100,
-            //     &buf,
-            //     "{s}{s}",
-            //     timeStr,
-            //     Types.FileExtensions.PNG,
-            // );
-            const name = try Utils.formatString(100, &buf, "{s}.{s}", .{ timeStr, @tagName(Types.FileExtensions.PNG) });
+            const name = try Utils.createFileName(100, &buf, timeStr, .PNG);
             try Utils.deleteFileIfExists(self.screenShotsDir, name);
             const file = try self.screenShotsDir.createFile(name, .{});
             defer file.close();
             try file.writeAll(&dest);
         }
+    }
+    pub fn runExampleUI(self: *Self) !void {
+        const startUIShFileData =
+            \\#!/bin/bash
+            \\echo "Change dir to UI and start node server..."
+            \\cd "UI"
+            \\node index.js
+        ;
+        const cwd = Utils.getCWD();
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
+        var startUiExampleFIle = try cwd.createFile(self.setShFileByOs(Actions.startExampleUISh), .{ .truncate = true });
+        try startUiExampleFIle.chmod(777);
+        try startUiExampleFIle.writeAll(startUIShFileData);
+        var startExampleDetachedFile = try cwd.createFile(self.setShFileByOs(Actions.startUIDetached), .{ .truncate = true });
+        try startExampleDetachedFile.chmod(777);
+        const startUIDeatachedFileData = try createStartDetachedShFileData("startUI", "node", self.setShFileByOs(Actions.startExampleUISh));
+        startExampleDetachedFile.writeAll(startUIDeatachedFileData) catch |e| {
+            @panic(@errorName(e));
+        };
+        defer {
+            startExampleDetachedFile.close();
+            startUiExampleFIle.close();
+        }
+        const argv = [3][]const u8{
+            "chmod",
+            "+x",
+            self.setShFileByOs(Actions.startUIDetached),
+        };
+        var code = try Utils.executeCmds(3, self.getAllocator(), &argv);
+        try Utils.checkExitCode(code.exitCode, code.message);
+        const arg2 = [1][]const u8{
+            self.setShFileByOs(Actions.startUIDetached),
+        };
+        code = try Utils.executeCmds(1, self.getAllocator(), &arg2);
+        try Utils.checkExitCode(code.exitCode, code.message);
+    }
+    pub fn setShFileByOs(self: *Self, action: Actions) []const u8 {
+        return switch (action) {
+            Actions.startChromeDriver => {
+                if (self.isWindows()) {
+                    return self.files.startChromeDriverShW;
+                }
+                return self.files.startChromeDriverSh;
+            },
+            Actions.startDriverDetached => {
+                if (self.isWindows()) {
+                    return self.files.startDriverDetachedShW;
+                }
+                return self.files.startDriverDetachedSh;
+            },
+            Actions.startUIDetached => {
+                if (self.isWindows()) {
+                    return self.files.startExampleDetachedShW;
+                }
+                return self.files.startExampleDetachedSh;
+            },
+            Actions.startExampleUISh => {
+                if (self.isWindows()) {
+                    return self.files.startExampleUIShW;
+                }
+                return self.files.startExampleUISh;
+            },
+            Actions.deleteDriverDetached => {
+                if (self.isWindows()) {
+                    return self.files.deleteDriverDetachedShW;
+                }
+                return self.files.createDeleteDriverDetachedSh;
+            },
+        };
+    }
+    fn isWindows(self: *Self) bool {
+        if (Utils.startsWith(u8, self.osType, "win")) {
+            return true;
+        }
+        return false;
     }
     fn downoadChromeDriverZip(self: *Self, res: Types.ChromeDriverResponse) !void {
         var chromeDriverURL: []const u8 = "";
@@ -218,53 +295,26 @@ pub const FileManager = struct {
             } else break;
         }
     }
-    fn createStartDriverDetachedSh(_: *Self, fileName: []const u8) !void {
+    fn createStartDriverDetachedSh(self: *Self) !void {
         const cwd = Utils.getCWD();
-        try Utils.deleteFileIfExists(cwd, fileName);
-        var startDriverDetachedSh = try cwd.createFile(fileName, .{});
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startDriverDetached));
+        var startDriverDetachedSh = try cwd.createFile(self.setShFileByOs(Actions.startDriverDetached), .{});
         try startDriverDetachedSh.chmod(777);
-        const fileData: []const u8 =
-            \\#!/bin/bash
-            \\# Kill chromeDriver
-            \\echo "killing chromeDriver..."
-            \\pkill -9 chromedri
-            \\# Define the screen session title
-            \\session_title="chromeDriverSession"
-            \\# Kill existing session with same title if it exists
-            \\if screen -ls | grep -q "$session_title"; then
-            \\  echo "screen $session_title is currently running, killing session and starting a new one"
-            \\  screen -XS $session_title quit
-            \\fi
-            \\# Start a new screen session with the title 'web_server' and run the command to start the server
-            \\screen -dmS $session_title bash -c "chmod +x ./startChromeDriver.sh && ./startChromeDriver.sh; exec bash"
-        ;
-        _ = try startDriverDetachedSh.writeAll(fileData);
+        const fileData = try createStartDetachedShFileData(chromeDriverSession, chromedriver, self.setShFileByOs(Actions.startChromeDriver));
+        startDriverDetachedSh.writeAll(fileData) catch |e| {
+            @panic(@errorName(e));
+        };
         defer startDriverDetachedSh.close();
     }
-    fn deleteDriverDetachedSh(_: *Self, fileName: []const u8) !void {
+    fn createDeleteDriverDetachedSh(self: *Self) !void {
         const cwd = Utils.getCWD();
-        try Utils.deleteFileIfExists(cwd, fileName);
-        var deleteDriverSessionDetachedSh = try cwd.createFile(fileName, .{});
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteDriverDetached));
+        var deleteDriverSessionDetachedSh = try cwd.createFile(self.setShFileByOs(Actions.deleteDriverDetached), .{});
         try deleteDriverSessionDetachedSh.chmod(777);
-        const f: []const u8 =
-            \\#!/bin/bash
-            \\# Define the title you're looking for
-            \\session_title="chromeDriverSession"
-            \\# Get the session ID by matching the title
-            \\# Kill chromeDriver
-            \\echo "killing chromeDriver..."
-            \\pkill -9 chromedri
-            \\session_id=$(screen -ls | grep "$session_title" | awk '{print $1}' | cut -d'.' -f1)
-            \\# Check if the session was found
-            \\if [ -n "$session_id" ]; then
-            \\  echo "Killing screen session: $session_id"
-            \\  # Kill the screen session
-            \\  screen -XS "$session_id" quit
-            \\else
-            \\ echo "No screen session found with title: $session_title"
-            \\fi
-        ;
-        _ = try deleteDriverSessionDetachedSh.writeAll(f);
+        const fileData = try createDeleteDetachedShFileData(chromeDriverSession, chromedriver);
+        deleteDriverSessionDetachedSh.writeAll(fileData) catch |e| {
+            @panic(@errorName(e));
+        };
         defer deleteDriverSessionDetachedSh.close();
     }
     fn createDriverOutDir(self: *Self, logFilePath: ?[]const u8) ![]const u8 {
@@ -286,11 +336,11 @@ pub const FileManager = struct {
         }
         return chromeDriverLogFilePath;
     }
-    fn createStartChromeDriverSh(self: *Self, fileName: []const u8, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
+    fn createStartChromeDriverSh(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
         const cwd = Utils.getCWD();
         const chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.chromeDriverOutFilePath);
-        try Utils.deleteFileIfExists(cwd, fileName);
-        var startChromeDriver = try cwd.createFile(fileName, .{});
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startChromeDriver));
+        var startChromeDriver = try cwd.createFile(self.setShFileByOs(Actions.startChromeDriver), .{});
         try startChromeDriver.chmod(777);
         var chromeDriverPathArray = try std.ArrayList([]const u8).initCapacity(self.getAllocator(), 1024);
         var splitChromePath = std.mem.splitSequence(u8, chromeDriverOptions.chromeDriverExecPath.?, "/");
@@ -301,7 +351,7 @@ pub const FileManager = struct {
         var exeFileName: []const u8 = "";
         if (chromeDriverExec) |exe| {
             exeFileName = exe;
-            if (!Utils.eql(u8, exe, "chromedriver")) {
+            if (!Utils.eql(u8, exe, chromedriver)) {
                 @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
             }
         }
@@ -323,7 +373,9 @@ pub const FileManager = struct {
             chromeDriverOptions.chromeDriverPort.?,
             chromeDriverLogFilePath,
         });
-        _ = try startChromeDriver.write(formattedFileContents);
+        _ = startChromeDriver.write(formattedFileContents) catch |e| {
+            @panic(@errorName(e));
+        };
         defer {
             self.getAllocator().free(chromeDriverLogFilePath);
             self.getAllocator().free(chromeDriverFolderPath);
@@ -343,5 +395,51 @@ pub const FileManager = struct {
             @panic("FileManager::createScreenShotDir()::cannot create directory, exiting program...");
         }
         self.screenShotsDir = try Utils.openDir(cwd, self.files.screenShotDir);
+    }
+    fn createStartDetachedShFileData(
+        comptime sessionTitle: []const u8,
+        comptime serviceName: []const u8,
+        fileToRun: []const u8,
+    ) ![]const u8 {
+        const fileData: []const u8 =
+            \\#!/bin/bash
+            \\echo "killing service: {s}..."
+            \\pkill -9 {s}
+            \\# Define the screen session title
+            \\session_title="{s}"
+            \\# Kill existing session with same title if it exists
+            \\if screen -ls | grep -q "$session_title"; then
+            \\  echo "screen $session_title is currently running, killing session and starting a new one"
+            \\  screen -XS $session_title quit
+            \\fi
+            \\# Start a new screen session with the title $session_title and run the command to start the server
+            \\screen -dmS $session_title bash -c "chmod +x {s} && {s}; exec bash"
+        ;
+        var buf: [1024]u8 = undefined;
+        return try Utils.formatString(1024, &buf, fileData, .{ serviceName, serviceName, sessionTitle, fileToRun, fileToRun });
+    }
+    fn createDeleteDetachedShFileData(
+        comptime sessionTitle: []const u8,
+        comptime serviceName: []const u8,
+    ) ![]const u8 {
+        const fileData: []const u8 =
+            \\#!/bin/bash
+            \\# Define the title you're looking for
+            \\session_title="{s}"
+            \\# Get the session ID by matching the title
+            \\echo "killing {s}..."
+            \\pkill -9 {s}
+            \\session_id=$(screen -ls | grep "$session_title" | awk '{s}' | cut -d'.' -f1)
+            \\# Check if the session was found
+            \\if [ -n "$session_id" ]; then
+            \\  echo "Killing screen session: $session_id"
+            \\  # Kill the screen session
+            \\  screen -XS "$session_id" quit
+            \\else
+            \\echo "No screen session found with title: $session_title"
+            \\fi
+        ;
+        var buf: [1024]u8 = undefined;
+        return try Utils.formatString(1024, &buf, fileData, .{ sessionTitle, serviceName, serviceName, "{print $1}" });
     }
 };
