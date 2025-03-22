@@ -25,8 +25,8 @@ pub fn main() !void {
     const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "run-button");
     try driver.click(el);
     try driver.screenShot("test.png");
-    // std.time.sleep(5_000_000_000);
-    // try driver.stopDriver();
+    std.time.sleep(5_000_000_000);
+    try driver.stopDriver();
     defer {
         allocator.free(el);
         // defer chan.deInit();
