@@ -7,3 +7,4 @@
 zig-*
 **/node_modules
 **/screenShots/**
+**/electron/**

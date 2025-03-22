@@ -6,7 +6,8 @@ const Types = @import("common").Types;
 const Utils = @import("common").Utils;
 const DriverTypes = @import("./types.zig");
 const process = std.process;
-const FileManager = @import("../fileManager/fileManager.zig").FileManager;
+const FileManager = @import("common").FileManager;
+const Actions = @import("common").Actions;
 
 pub const Driver = struct {
     const Self = @This();
@@ -22,7 +23,7 @@ pub const Driver = struct {
     isDriverRunning: bool = false,
     fileManager: FileManager = undefined,
 
-    pub fn init(allocator: Allocator, logger: ?Logger, options: ?DriverTypes.ChromeDriverConfigOptions) !Self {
+    pub fn init(allocator: Allocator, logger: ?Logger, options: ?Types.ChromeDriverConfigOptions) !Self {
         var driver = Driver{
             .allocator = allocator,
         };
@@ -36,7 +37,7 @@ pub const Driver = struct {
         if (driver.chromeDriverExecPath.len == 0) {
             try driver.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
         }
-        try driver.fileManager.executeFiles(driver.fileManager.files.startDriverDetachedSh);
+        try driver.fileManager.executeFiles(driver.fileManager.setShFileByOs(Actions.startDriverDetached));
         return driver;
     }
     pub fn deInit(self: *Self) void {
@@ -206,7 +207,7 @@ pub const Driver = struct {
         }
     }
     pub fn stopDriver(self: *Self) !void {
-        try self.fileManager.executeFiles(self.fileManager.files.deleteDriverDetachedSh);
+        try self.fileManager.executeFiles(self.fileManager.setShFileByOs(Actions.deleteDriverDetached));
     }
     fn getSessionID(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
@@ -262,7 +263,7 @@ pub const Driver = struct {
         const body = try req.post(urlApi, options, arrayList.items, null);
         defer self.allocator.free(body);
     }
-    fn checkOptions(self: *Self, options: ?DriverTypes.ChromeDriverConfigOptions) !void {
+    fn checkOptions(self: *Self, options: ?Types.ChromeDriverConfigOptions) !void {
         if (options) |op| {
             if (op.chromeDriverPort) |port| {
                 const code = try self.checkIfPortInUse(port);

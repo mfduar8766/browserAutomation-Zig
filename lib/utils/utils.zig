@@ -149,33 +149,42 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     return exists;
 }
 
-//TODO: Fix this shit
-pub fn createFileName(
-    bufLen: comptime_int,
-    buf: *[bufLen]u8,
-    comptime fmt: []const u8,
-    args: anytype,
-    extension: Types.FileExtensions,
-) ![]const u8 {
-    const emptyTuple = .{};
-    const combinedArgs = emptyTuple ++ args;
+//TODO: Make this generic??
+// pub fn createFileName(
+//     bufLen: comptime_int,
+//     buf: *[bufLen]u8,
+//     comptime fmt: []const u8,
+//     args: anytype,
+//     extension: Types.FileExtensions,
+// ) ![]const u8 {
+//     const emptyTuple = .{};
+//     const combinedArgs = emptyTuple ++ args;
+//     return switch (extension) {
+//         Types.FileExtensions.TXT => {
+//             const txtExtension = combinedArgs ++ .{".txt"};
+//             return try formatString(bufLen, buf, fmt, txtExtension);
+//         },
+//         Types.FileExtensions.LOG => {
+//             const logExtension = combinedArgs ++ .{".log"};
+//             return try formatString(bufLen, buf, fmt, logExtension);
+//         },
+//         Types.FileExtensions.JPG => {
+//             const jPegExtension = combinedArgs ++ .{".jpg"};
+//             return try formatString(bufLen, buf, fmt, jPegExtension);
+//         },
+//         Types.FileExtensions.PNG => {
+//             const pngExtension = combinedArgs ++ .{".png"};
+//             return try formatString(bufLen, buf, fmt, pngExtension);
+//         },
+//     };
+// }
+
+pub fn createFileName(bufLen: comptime_int, buf: *[bufLen]u8, args: anytype, extension: Types.FileExtensions) ![]const u8 {
     return switch (extension) {
-        Types.FileExtensions.TXT => {
-            const txtExtension = combinedArgs ++ .{".txt"};
-            return try formatString(bufLen, buf, fmt, txtExtension);
-        },
-        Types.FileExtensions.LOG => {
-            const logExtension = combinedArgs ++ .{".log"};
-            return try formatString(bufLen, buf, fmt, logExtension);
-        },
-        Types.FileExtensions.JPEG => {
-            const jPegExtension = combinedArgs ++ .{".jpeg"};
-            return try formatString(bufLen, buf, fmt, jPegExtension);
-        },
-        Types.FileExtensions.PNG => {
-            const pngExtension = combinedArgs ++ .{".png"};
-            return try formatString(bufLen, buf, fmt, pngExtension);
-        },
+        .JPG => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.JPG) }),
+        .PNG => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.PNG) }),
+        .LOG => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.LOG) }),
+        .TXT => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.TXT) }),
     };
 }
 
