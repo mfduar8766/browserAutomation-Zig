@@ -21,9 +21,10 @@ pub fn main() !void {
         .chromeDriverPort = 4200,
     });
     try driver.waitForDriver(DriverTypes.WaitOptions{});
-    try driver.launchWindow("https://jsonplaceholder.typicode.com");
-    const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "run-button");
-    try driver.click(el);
+    try driver.launchWindow("https://www.google.com/");
+    const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "APjFqb");
+    try driver.keyInValue(el, "foo");
+    try driver.sendEnterCmd();
     try driver.screenShot("test.png");
     std.time.sleep(5_000_000_000);
     try driver.stopDriver();

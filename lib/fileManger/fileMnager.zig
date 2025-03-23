@@ -131,7 +131,7 @@ pub const FileManager = struct {
         }
     }
     pub fn saveScreenShot(self: *Self, fileName: ?[]const u8, bytes: []const u8) !void {
-        var dest: [347828]u8 = undefined;
+        var dest: [500000]u8 = undefined;
         try std.base64.standard.Decoder.decode(&dest, bytes);
         if (fileName) |name| {
             if (!std.mem.containsAtLeast(u8, name, 1, ".")) {

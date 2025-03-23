@@ -22,8 +22,8 @@ pub const Driver = struct {
     sessionID: []const u8 = "",
     isDriverRunning: bool = false,
     fileManager: FileManager = undefined,
-    height: i32 = 800,
-    width: i32 = 600,
+    height: i32 = 1000,
+    width: i32 = 1000,
 
     pub fn init(allocator: Allocator, logger: ?Logger, options: ?Types.ChromeDriverConfigOptions) !Self {
         var driver = Driver{
@@ -100,7 +100,7 @@ pub const Driver = struct {
     /// Find by css, xpath, tagName, id
     pub fn findElement(self: *Self, selectorType: DriverTypes.SelectorTypes, comptime selectorName: []const u8) ![]const u8 {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 1024 });
+        var req = Http.init(self.allocator, .{ .maxReaderSize = 125 });
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -186,7 +186,7 @@ pub const Driver = struct {
     }
     pub fn screenShot(self: *Self, fileName: ?[]const u8) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 347828 });
+        var req = Http.init(self.allocator, .{ .maxReaderSize = 500000 });
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -230,12 +230,12 @@ pub const Driver = struct {
                 @panic("Driver::waitForDriver()::failed to start chromeDriver, exiting program...");
             }
             try self.logger.info("Driver::waitForDriver()::sending PING to chromeDriver...", null);
-            const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
+            const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
             var req = Http.init(self.allocator, null);
             const bufLen = 250;
             var urlBuf: [bufLen]u8 = undefined;
             const urlApi = try self.getRequestUrl(DriverTypes.RequestUrlPaths.STATUS, bufLen, &urlBuf, null);
-            const res = try req.get(urlApi, .{ .server_header_buffer = serverHeaderBuf }, 245);
+            const res = try req.get(urlApi, .{ .server_header_buffer = serverHeaderBuf }, 243);
             const parsed = try std.json.parseFromSlice(DriverTypes.ChromeDriverStatus, self.allocator, res, .{ .ignore_unknown_fields = true });
             if (parsed.value.value.ready) {
                 self.isDriverRunning = true;
@@ -250,6 +250,66 @@ pub const Driver = struct {
         }
         if (self.isDriverRunning) {
             try self.fileManager.writeToStdOut();
+        }
+    }
+    ///keyInValue - Used to keyin values into a text box
+    ///
+    /// Only supports keyin for text
+    pub fn keyInValue(self: *Self, elementID: []const u8, input: []const u8) !void {
+        var list = std.ArrayList([]const u8).init(self.allocator);
+        try list.append(input);
+        const slice = try list.toOwnedSlice();
+        const payload = DriverTypes.KeyInValuePayload{ .text = input, .value = slice };
+        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
+        const bufLen = 250;
+        var urlBuf: [bufLen]u8 = undefined;
+        const urlApi = try self.getRequestUrl(
+            DriverTypes.RequestUrlPaths.KEY_IN_VALUE,
+            bufLen,
+            &urlBuf,
+            elementID,
+        );
+        var buf: [1024]u8 = undefined;
+        var fba = std.heap.FixedBufferAllocator.init(&buf);
+        const allocator = fba.allocator();
+        const body = try Utils.stringify(allocator, u8, payload, .{});
+        const options = std.http.Client.RequestOptions{
+            .server_header_buffer = serverHeaderBuf,
+            .headers = .{ .content_type = .{ .override = "application/json" } },
+        };
+        const res = try req.post(urlApi, options, body, null);
+        defer {
+            allocator.free(body);
+            self.allocator.free(slice);
+            self.allocator.free(serverHeaderBuf);
+            self.allocator.free(res);
+            req.deinit();
+        }
+    }
+    pub fn sendEnterCmd(self: *Self) !void {
+        const f =
+            \\{"actions":[{"type":"key","id":"keyboard","actions":[{"type":"keyDown","value":"\uE007"}]}]}
+        ;
+        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        var req = Http.init(self.allocator, .{ .maxReaderSize = 2006 });
+        const bufLen = 250;
+        var urlBuf: [bufLen]u8 = undefined;
+        const urlApi = try self.getRequestUrl(
+            DriverTypes.RequestUrlPaths.PRESS_ENTER,
+            bufLen,
+            &urlBuf,
+            null,
+        );
+        const options = std.http.Client.RequestOptions{
+            .server_header_buffer = serverHeaderBuf,
+            .headers = .{ .content_type = .{ .override = "application/json" } },
+        };
+        const res = try req.post(urlApi, options, f, null);
+        defer {
+            self.allocator.free(serverHeaderBuf);
+            self.allocator.free(res);
+            req.deinit();
         }
     }
     pub fn stopDriver(self: *Self) !void {
@@ -327,7 +387,7 @@ pub const Driver = struct {
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(DriverTypes.RequestUrlPaths.NAVIGATE_TO, bufLen, &urlBuf, null);
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);
+        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
         defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
         defer req.deinit();
@@ -489,6 +549,30 @@ pub const Driver = struct {
                     "rect",
                 });
             },
+            DriverTypes.RequestUrlPaths.KEY_IN_VALUE => {
+                const newPath = chromeDriverRestURL ++ "/{s}/{s}/{s}/{s}";
+                var id: []const u8 = "";
+                if (elementID) |elID| {
+                    id = elID;
+                }
+                return try Utils.formatString(bufLen, buf, newPath, .{
+                    self.chromeDriverPort,
+                    "session",
+                    self.sessionID,
+                    "element",
+                    id,
+                    "value",
+                });
+            },
+            DriverTypes.RequestUrlPaths.PRESS_ENTER => {
+                const newPath = chromeDriverRestURL ++ "/{s}/{s}";
+                return try Utils.formatString(bufLen, buf, newPath, .{
+                    self.chromeDriverPort,
+                    "session",
+                    self.sessionID,
+                    "actions",
+                });
+            },
             else => "",
         };
     }
@@ -500,7 +584,6 @@ pub const Driver = struct {
                 const newStr = "." ++ selectorName;
                 findElementQuery.value = newStr;
             },
-            // TODO: Figure this out
             DriverTypes.SelectorTypes.ID_TAG => {
                 findElementQuery.using = DriverTypes.SelectorTypes.getSelector(0);
                 const newStr = "#" ++ selectorName;
