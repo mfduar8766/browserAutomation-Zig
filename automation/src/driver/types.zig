@@ -55,6 +55,8 @@ pub const RequestUrlPaths = enum {
     CLICK_ELEMENT,
     SCREEN_SHOT,
     SET_WINDOW_RECT,
+    KEY_IN_VALUE,
+    PRESS_ENTER,
 };
 
 /// ChromeDriver response ito /sessions API request
@@ -156,4 +158,57 @@ pub const ScreenShotResponse = struct {
 pub const SetWindowHeightAndWidth = struct {
     width: i32,
     height: i32,
+};
+
+pub const KeyInValuePayload = struct {
+    text: []const u8,
+    value: ?[][]const u8 = null,
+};
+
+///KeyIn
+///
+///{
+///"type": "key",
+///"id": "keyboard",
+///"actions": [
+///{ "type": "keyDown", "value": "a" },  // Press 'a'
+///{ "type": "keyUp", "value": "a" }     // Release 'a'
+///]
+///}
+///
+/// Pointer
+///
+/// {
+///"type": "pointer",
+///"id": "mouse",
+///"parameters": { "pointerType": "mouse" },
+///"actions": [
+///{ "type": "pointerMove", "x": 100, "y": 200 },
+///{ "type": "pointerDown", "button": 0 },  // Left-click
+///{ "type": "pointerUp", "button": 0 }
+///]
+///}
+///
+/// Mouse Wheel
+///
+/// {
+///"type": "wheel",
+///"id": "scroll",
+///"actions": [
+///{ "type": "scroll", "deltaX": 0, "deltaY": 100 }
+///]
+///}
+pub const WebDriverActions = struct {
+    actions: []ActionParams,
+};
+
+pub const ActionParams = struct {
+    type: []u8,
+    id: []u8,
+    actions: []Actions,
+};
+
+pub const Actions = struct {
+    type: []u8,
+    value: []u8,
 };
