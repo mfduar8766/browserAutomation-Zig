@@ -364,7 +364,7 @@ pub const FileManager = struct {
             \\#!/bin/bash
             \\cd "{s}"
             \\chmod +x ./{s}
-            \\./{s} --port={d} --log-path={s} &
+            \\./{s} --port={d} --log-path={s} --headless &
         ;
         const formattedFileContents = try Utils.formatString(1024, &buf4, fileContents, .{
             chromeDriverFolderPath,
