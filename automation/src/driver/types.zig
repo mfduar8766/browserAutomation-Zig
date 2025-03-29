@@ -57,6 +57,9 @@ pub const RequestUrlPaths = enum {
     SET_WINDOW_RECT,
     KEY_IN_VALUE,
     PRESS_ENTER,
+    GO_BACK,
+    GO_FORWARD,
+    SET_POSITION,
 };
 
 /// ChromeDriver response ito /sessions API request
@@ -212,3 +215,6 @@ pub const Actions = struct {
     type: []u8,
     value: []u8,
 };
+
+///WindowPosition - Sets the location of window on screen X, Y axis
+pub const WindowPositionPayload = struct { x: i32, y: i32 };

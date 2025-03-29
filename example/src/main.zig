@@ -25,7 +25,10 @@ pub fn main() !void {
     const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "APjFqb");
     try driver.keyInValue(el, "foo");
     try driver.sendEnterCmd();
-    try driver.screenShot("test.png");
+    std.time.sleep(5_000_000_000);
+    try driver.goBack();
+    std.time.sleep(5_000_000_000);
+    try driver.goForward();
     std.time.sleep(5_000_000_000);
     try driver.stopDriver();
     defer {
