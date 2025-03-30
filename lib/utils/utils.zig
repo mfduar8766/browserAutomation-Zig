@@ -181,10 +181,10 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
 
 pub fn createFileName(bufLen: comptime_int, buf: *[bufLen]u8, args: anytype, extension: Types.FileExtensions) ![]const u8 {
     return switch (extension) {
-        .JPG => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.JPG) }),
-        .PNG => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.PNG) }),
-        .LOG => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.LOG) }),
-        .TXT => try formatString(100, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.TXT) }),
+        .JPG => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.JPG) }),
+        .PNG => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.PNG) }),
+        .LOG => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.LOG) }),
+        .TXT => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.TXT) }),
     };
 }
 
@@ -378,6 +378,14 @@ pub fn formatString(bufLen: comptime_int, buf: *[bufLen]u8, comptime fmt: []cons
     return @as([]const u8, try std.fmt.bufPrint(buf, fmt, args));
 }
 
+pub fn stringFmt(buf: *[1024]u8, args: anytype) ![]const u8 {
+    return @as([]const u8, try std.fmt.bufPrint(buf, "{s}", args));
+}
+
+pub fn intToStringFmt(buf: *[32]u8, args: anytype) ![]const u8 {
+    return @as([]const u8, try std.fmt.bufPrint(buf, "{d}", args));
+}
+
 pub fn assert(value: bool) void {
     return std.mem.assert(value);
 }
@@ -462,7 +470,7 @@ pub fn convertToString(
     arrayList: *std.ArrayList(u8),
     T: type,
     data: anytype,
-    comptime message: []const u8,
+    message: []const u8,
 ) !struct { data: ?[]const u8, message: []const u8 } {
     const typeInfo = @typeInfo(T);
     if (typeInfo != .null) {
@@ -485,38 +493,11 @@ pub fn convertToString(
             const isConst = typeInfo.pointer.is_const;
             const child = typeInfo.pointer.child;
             if (isConst and (child == u8 or child == [data.len:0]u8 or T == *const [data.len:0]u8 or T == []const u8)) {
-                // if (isStringFormat) {
-                //     return .{ .data = null, .message = try formatString(1024, messageBuf, message, .{@as([]const u8, data)}) };
-                // }
                 return .{ .data = @as([]const u8, data), .message = message };
             }
         }
-        // else if (isDigitFormat and isDigit) {
-        //     return .{ .data = @as(T, data), .message = try formatString(1024, messageBuf, message, .{@as(T, data)}) };
-        // }
-        // else if (isStringFormat and typeInfo == .pointer) {
-        //     print("IS FORMAT\n", .{});
-        //     const isConst = typeInfo.pointer.is_const;
-        //     const child = typeInfo.pointer.child;
-        //     if (isConst and (child == u8 or child == [data.len:0]u8 or T == *const [data.len:0]u8 or T == []const u8)) {
-        //         print("GGGG\n", .{});
-        // return .{ .data = null, .message = try formatString(1024, messageBuf, message, .{@as([]const u8, data)}) };
-        //     }
     }
     return .{ .data = null, .message = message };
-}
-
-pub fn isString(typeInfo: std.builtin.Type, data: anytype) bool {
-    const isConst = typeInfo.pointer.is_const;
-    const child = typeInfo.pointer.child;
-    const size = typeInfo.pointer.size;
-    if (isConst and @TypeOf(size) == std.builtin.Type.Pointer.Size) {
-        if (child == u8 or child == [data.len:0]u8) {
-            return true;
-        }
-        return true;
-    }
-    return false;
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {

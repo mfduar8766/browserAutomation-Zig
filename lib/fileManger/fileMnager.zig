@@ -59,19 +59,31 @@ pub const FileManager = struct {
     screenShotsDir: std.fs.Dir = undefined,
     comptime osType: []const u8 = Utils.getOsType(),
 
-    pub fn init(allocator: std.mem.Allocator, logger: Logger) FileManager {
-        return FileManager{
-            .logger = logger,
+    pub fn init(allocator: std.mem.Allocator) !Self {
+        var fileManager = FileManager{
             .arena = std.heap.ArenaAllocator.init(allocator),
         };
+        fileManager.logger = Logger.init(fileManager.files.loggerFileDir) catch |e| {
+            std.debug.print("FileManager::init()::received error: {s}\n", .{@errorName(e)});
+            @panic("FileManager::init()::failed to init fileManager, exiting program...");
+        };
+        return fileManager;
     }
     pub fn deInit(self: *Self) void {
         self.arena.deinit();
         self.driverOutFile.close();
         self.screenShotsDir.close();
     }
-    fn getAllocator(self: *Self) std.mem.Allocator {
-        return self.arena.allocator();
+    pub fn closeDirAndFiles(self: *Self) void {
+        self.logger.closeDirAndFiles();
+    }
+    pub fn log(self: *Self, logType: Types.LogLevels, message: []const u8, data: anytype) !void {
+        switch (logType) {
+            Types.LogLevels.INFO => try self.logger.info(message, data),
+            Types.LogLevels.WARNING => try self.logger.warn(message, data),
+            Types.LogLevels.ERROR => try self.logger.err(message, data),
+            Types.LogLevels.FATAL => try self.logger.fatal(message, data),
+        }
     }
     pub fn createFiles(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
         try self.createStartChromeDriverSh(chromeDriverOptions);
@@ -227,6 +239,9 @@ pub const FileManager = struct {
                 return self.files.createDeleteDriverDetachedSh;
             },
         };
+    }
+    fn getAllocator(self: *Self) std.mem.Allocator {
+        return self.arena.allocator();
     }
     fn isWindows(self: *Self) bool {
         if (Utils.startsWith(u8, self.osType, "win")) {

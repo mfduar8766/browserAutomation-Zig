@@ -82,7 +82,6 @@ pub const ChromeDriverVersion = enum(u4) {
 };
 
 pub const ChromeCapabilities = struct {
-    const Self = @This();
     capabilities: Capabilities = Capabilities{},
 };
 
@@ -98,7 +97,7 @@ pub const AlwaysMatchOptions = struct {
 
 // TODO: Make this configurable
 pub const GoogleChromeOptiions = struct {
-    args: ?[3][]const u8 = null,
+    args: ?[1][]const u8 = null,
 };
 
 pub const ChromeDriverResponse = struct {

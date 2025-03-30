@@ -26,7 +26,13 @@ pub const Logger = struct {
         const today = Utils.fromTimestamp(@intCast(time.timestamp()));
         const max_len = 14;
         var buf: [max_len]u8 = undefined;
-        logger.fileName = std.fmt.bufPrint(&buf, "{}_{}_{}.log", .{ today.year, today.month, today.day }) catch |e| {
+        var fmtFileBuf: [14]u8 = undefined;
+        logger.fileName = Utils.createFileName(
+            max_len,
+            &buf,
+            try Utils.formatString(max_len, &fmtFileBuf, "{d}_{d}_{d}", .{ today.year, today.month, today.day }),
+            Types.FileExtensions.LOG,
+        ) catch |e| {
             print("Logger::init()::err:{any}\n", .{e});
             @panic("Logger::init()::error creating fileB=Name exiting program...\n");
         };
@@ -36,16 +42,16 @@ pub const Logger = struct {
         logger.logFile = createFileData.file;
         return logger;
     }
-    pub fn info(self: *Self, comptime message: []const u8, data: anytype) !void {
+    pub fn info(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.info(self.logFile, message, data);
     }
-    pub fn warn(self: *Self, comptime message: []const u8, data: anytype) !void {
+    pub fn warn(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.warn(self.logFile, message, data);
     }
-    pub fn err(self: *Self, comptime message: []const u8, data: anytype) !void {
+    pub fn err(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.err(self.logFile, message, data);
     }
-    pub fn fatal(self: *Self, comptime message: []const u8, data: anytype) !void {
+    pub fn fatal(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.fatal(self.logFile, message, data);
     }
     pub fn closeDirAndFiles(self: *Self) void {
@@ -64,19 +70,19 @@ const LoggerData = struct {
     pub fn init() LoggerData {
         return LoggerData{};
     }
-    pub fn info(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
+    pub fn info(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.INFO, message, data);
     }
-    pub fn warn(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
+    pub fn warn(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.WARNING, message, data);
     }
-    pub fn err(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
+    pub fn err(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.ERROR, message, data);
     }
-    pub fn fatal(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
+    pub fn fatal(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.FATAL, message, data);
     }
-    fn setValues(self: *Self, file: fs.File, level: Types.LogLevels, comptime message: []const u8, data: anytype) !void {
+    fn setValues(self: *Self, file: fs.File, level: Types.LogLevels, message: []const u8, data: anytype) !void {
         switch (level) {
             Types.LogLevels.INFO => self.level = Types.LogLevels.get(0),
             Types.LogLevels.WARNING => self.level = Types.LogLevels.get(1),
@@ -89,7 +95,7 @@ const LoggerData = struct {
         self.time = formattedTime;
         try self.createJson(file, message, data);
     }
-    fn createJson(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
+    fn createJson(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         const bufLen = 32;
         var intBuf: [bufLen]u8 = undefined;
         var bufArrayList: [1024]u8 = undefined;
@@ -113,13 +119,6 @@ const LoggerData = struct {
             }
         }
         self.message = formattedData.message;
-        var buf: [1024]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&buf);
-        var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);
-        try std.json.stringify(self.*, .{ .emit_null_optional_fields = false }, string.writer());
-        try writeToFile(file, string.items);
-    }
-    fn callWriteToFile(self: *Self, file: fs.File) !void {
         var buf: [1024]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);
