@@ -6,17 +6,34 @@ const Types = @import("common").Types;
 
 //zig build run -DchromeDriverPort=42069 -DchromeDriverExecPath=chromeDriver/chromedriver-mac-x64/chromedriver
 
+// const std = @import("std");
+
+// const Foo = struct {
+//     const Self = @This();
+
+//     pub fn init(allocator: std.mem.Allocator) !*Self {
+//         var foo = try allocator.create(Self); // Allocates on heap
+//         return foo;
+//     }
+// };
+
+// pub fn main() !void {
+//     var gpa = std.heap.page_allocator;
+//     var foo = try Foo.init(gpa); // Returns a pointer to Foo
+
+//     gpa.destroy(foo); // Must free the allocated memory
+// }
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var logger = try Logger.init("Logs");
-    try logger.info("Main::main()::running program...", null);
-
+    // var logger = try Logger.init("Logs");
+    // try logger.info("Main::main()::running program...", null);
     // const T = Channels.Chan(u8);
     // var chan = T.init(allocator);
     // _ = try chan.recv();
 
-    var driver = try Driver.init(allocator, logger, Types.ChromeDriverConfigOptions{
+    var driver = try Driver.init(allocator, Types.ChromeDriverConfigOptions{
         .chromeDriverExecPath = "/Users/matheusduarte/Desktop/browserAutomation-Zig/example/chromeDriver/chromedriver-mac-x64/chromedriver",
         .chromeDriverPort = 4200,
     });
@@ -33,8 +50,8 @@ pub fn main() !void {
     try driver.stopDriver();
     defer {
         allocator.free(el);
-        // defer chan.deInit();
         driver.deInit();
+        // defer chan.deInit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
     }
