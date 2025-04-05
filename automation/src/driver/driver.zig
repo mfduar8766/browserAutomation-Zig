@@ -204,7 +204,6 @@ pub const Driver = struct {
     windowPositionX: i32 = 0,
     windowPositionY: i32 = 0,
     isHeadlessMode: bool = false,
-    // chromeDriverArgsList: std.ArrayList([]const u8) = undefined,
 
     pub fn init(allocator: Allocator, options: ?Types.ChromeDriverConfigOptions) !Self {
         var driver = Driver{
@@ -655,7 +654,6 @@ pub const Driver = struct {
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
-        std.debug.print("PAYLOAD: {s}\n", .{arrayList.items});
         const body = try req.post(urlApi, options, arrayList.items, 2081);
         const parsed = try std.json.parseFromSlice(ChromeDriverSessionResponse, self.allocator, body, .{ .ignore_unknown_fields = true });
         if (parsed.value.value.@"error") |e| {
