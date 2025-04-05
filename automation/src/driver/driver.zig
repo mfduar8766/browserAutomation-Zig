@@ -201,8 +201,10 @@ pub const Driver = struct {
     fileManager: FileManager = undefined,
     height: i32 = 1500,
     width: i32 = 1500,
-    x: i32 = 0,
-    y: i32 = 0,
+    windowPositionX: i32 = 0,
+    windowPositionY: i32 = 0,
+    isHeadlessMode: bool = false,
+    // chromeDriverArgsList: std.ArrayList([]const u8) = undefined,
 
     pub fn init(allocator: Allocator, options: ?Types.ChromeDriverConfigOptions) !Self {
         var driver = Driver{
@@ -222,7 +224,15 @@ pub const Driver = struct {
     pub fn deInit(self: *Self) void {
         self.allocator.free(self.sessionID);
         self.fileManager.deInit();
-        self.fileManager.closeDirAndFiles();
+    }
+    ///setHeadlessMode - used to run without a browser.
+    ///
+    /// Call before waitForDriver() and launchWindow().
+    pub fn setHeadlessMode(self: *Self) void {
+        if (self.isDriverRunning) {
+            @panic("Driver::setHeadlessMode()::cannot call this after driver is running. Exiting function...");
+        }
+        self.isHeadlessMode = true;
     }
     ///Used to open the browser and navigate to URL
     ///
@@ -408,8 +418,8 @@ pub const Driver = struct {
         if (self.isDriverRunning) {
             @panic("Driver::setWindowPosition()::driver is running cannot set window position while running");
         }
-        self.x = x;
-        self.y = y;
+        self.windowPositionX = x;
+        self.windowPositionY = y;
     }
     pub fn waitForDriver(self: *Self, waitOptions: DriverTypes.WaitOptions) !void {
         try self.fileManager.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sleeping for {d} seconds waiting for driver to start....", waitOptions.driverWaitTime);
@@ -603,7 +613,7 @@ pub const Driver = struct {
         var buf: [1024]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
-        const windowPosition = WindowPositionPayload{ .x = self.x, .y = self.y };
+        const windowPosition = WindowPositionPayload{ .x = self.windowPositionX, .y = self.windowPositionY };
         const body = try Utils.stringify(
             allocator,
             u8,
@@ -635,17 +645,17 @@ pub const Driver = struct {
         var arrayList = std.ArrayList(u8).init(fba.allocator());
         defer arrayList.deinit();
 
-        //TODO: Make this configurable
-        // const array = [1][]const u8{"--disable-blink-features=AutomationControlled"};
-        //[3][]const u8{ "--headless", "--disable-gpu", "--disable-extensions" };
-        // var chromeDriverCapabilities = Types.ChromeCapabilities{};
-        // chromeDriverCapabilities.capabilities.alwaysMatch.@"goog:chromeOptions".args = array;
-
-        try std.json.stringify(Types.ChromeCapabilities{}, .{ .emit_null_optional_fields = false }, arrayList.writer());
+        var chromeDriverCapabilities = Types.ChromeCapabilities{};
+        if (self.isHeadlessMode) {
+            const array = [3][]const u8{ "--headless", "--disable-gpu", "--disable-extensions" };
+            chromeDriverCapabilities.capabilities.alwaysMatch.@"goog:chromeOptions".args = array;
+        }
+        try std.json.stringify(chromeDriverCapabilities, .{ .emit_null_optional_fields = false }, arrayList.writer());
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
+        std.debug.print("PAYLOAD: {s}\n", .{arrayList.items});
         const body = try req.post(urlApi, options, arrayList.items, 2081);
         const parsed = try std.json.parseFromSlice(ChromeDriverSessionResponse, self.allocator, body, .{ .ignore_unknown_fields = true });
         if (parsed.value.value.@"error") |e| {
@@ -662,7 +672,7 @@ pub const Driver = struct {
         std.mem.copyForwards(u8, bytes, parsed.value.value.sessionId.?);
         self.sessionID = @as([]const u8, bytes);
         try self.setWindowSize();
-        if (self.x > 0 or self.y > 0) {
+        if (self.windowPositionX > 0 or self.windowPositionY > 0) {
             try self.setPosition();
         }
     }

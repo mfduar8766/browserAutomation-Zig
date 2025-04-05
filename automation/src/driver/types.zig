@@ -8,8 +8,6 @@ pub const ChromeDriverConfigOptions = struct {
     chromeDriverPort: ?i32 = undefined,
     /// chromeDriverVersion - Version of chromeDriver to use default is Stable
     chromeDriverVersion: ?[]const u8 = "Stable",
-    /// args - ChromeDriver args
-    args: ?[][]const u8 = undefined,
     /// chromeDriverOutFilePath - StdOut file for chromeDriver logs when running driver
     chromeDriverOutFilePath: ?[]const u8 = undefined,
 };

@@ -27,8 +27,6 @@ const Types = @import("common").Types;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    // var logger = try Logger.init("Logs");
-    // try logger.info("Main::main()::running program...", null);
     // const T = Channels.Chan(u8);
     // var chan = T.init(allocator);
     // _ = try chan.recv();
