@@ -4,15 +4,13 @@ const Utils = @import("../utils/utils.zig");
 /// ChromeDriverConfigOptions - Options for setting up chromeDriver
 pub const ChromeDriverConfigOptions = struct {
     /// chromeDriverExecPath - Path to chromeDriver exe file
-    chromeDriverExecPath: ?[]const u8 = undefined,
+    chromeDriverExecPath: ?[]const u8 = null,
     /// chromeDriverPort - Port chromeDriver will run on
-    chromeDriverPort: ?i32 = undefined,
+    chromeDriverPort: ?i32 = null,
     /// chromeDriverVersion - Version of chromeDriver to use default is Stable
     chromeDriverVersion: ?[]const u8 = "Stable",
-    /// args - ChromeDriver args
-    args: ?[][]const u8 = undefined,
     /// chromeDriverOutFilePath - StdOut file for chromeDriver logs when running driver
-    chromeDriverOutFilePath: ?[]const u8 = undefined,
+    chromeDriverOutFilePath: ?[]const u8 = null,
 };
 
 pub const LogLevels = enum(u2) {
@@ -95,9 +93,8 @@ pub const AlwaysMatchOptions = struct {
     @"goog:chromeOptions": GoogleChromeOptiions = GoogleChromeOptiions{},
 };
 
-// TODO: Make this configurable
 pub const GoogleChromeOptiions = struct {
-    args: ?[1][]const u8 = null,
+    args: ?[3][]const u8 = null,
 };
 
 pub const ChromeDriverResponse = struct {

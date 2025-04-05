@@ -73,8 +73,6 @@ pub const FileManager = struct {
         self.arena.deinit();
         self.driverOutFile.close();
         self.screenShotsDir.close();
-    }
-    pub fn closeDirAndFiles(self: *Self) void {
         self.logger.closeDirAndFiles();
     }
     pub fn log(self: *Self, logType: Types.LogLevels, message: []const u8, data: anytype) !void {
