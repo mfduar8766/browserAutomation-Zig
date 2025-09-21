@@ -3,6 +3,7 @@ const Logger = @import("common").Logger;
 const Driver = @import("driver").Driver;
 const DriverTypes = @import("driver").DriverTypes;
 const Types = @import("common").Types;
+const FileManager = @import("common").FileManager;
 
 //zig build run -DchromeDriverPort=42069 -DchromeDriverExecPath=chromeDriver/chromedriver-mac-x64/chromedriver
 
@@ -27,6 +28,9 @@ const Types = @import("common").Types;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
+    // var fileM = try FileManager.init(allocator);
+    // try fileM.startE2E();
+
     // const T = Channels.Chan(u8);
     // var chan = T.init(allocator);
     // _ = try chan.recv();
@@ -37,18 +41,19 @@ pub fn main() !void {
     });
     try driver.waitForDriver(DriverTypes.WaitOptions{});
     try driver.launchWindow("https://www.google.com/");
-    const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "APjFqb");
-    try driver.keyInValue(el, "foo");
-    try driver.sendEnterCmd();
-    std.time.sleep(5_000_000_000);
-    try driver.goBack();
-    std.time.sleep(5_000_000_000);
-    try driver.goForward();
+    // const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "APjFqb");
+    // try driver.keyInValue(el, "foo");
+    // try driver.sendEnterCmd();
+    // std.time.sleep(5_000_000_000);
+    // try driver.goBack();
+    // std.time.sleep(5_000_000_000);
+    // try driver.goForward();
     std.time.sleep(5_000_000_000);
     try driver.stopDriver();
     defer {
-        allocator.free(el);
+        // allocator.free(el);
         driver.deInit();
+        // fileM.deInit();
         // defer chan.deInit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");

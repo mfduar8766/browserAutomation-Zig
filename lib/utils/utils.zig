@@ -117,7 +117,11 @@ pub fn getCWD() fs.Dir {
 }
 
 /// Calls os.makePath
-/// Calls makeDir iteratively to make an entire path (i.e. creating any parent directories that do not exist). Returns success if the path already exists and is a /// directory. This function is not atomic, and if it returns an error, the file system may have been modified regardless. On Windows, sub_path should be encoded as WTF-8. On WASI, sub_path should be encoded as valid UTF-8. On other platforms, sub_path is an opaque sequence of bytes with no particular encoding.
+/// Calls makeDir iteratively to make an entire path (i.e. creating any parent directories that do not exist).
+/// Returns success if the path already exists and is a directory.
+/// This function is not atomic, and if it returns an error, the file system may have been modified regardless.
+/// On Windows, sub_path should be encoded as WTF-8. On WASI, sub_path should be encoded as valid UTF-8.
+/// On other platforms, sub_path is an opaque sequence of bytes with no particular encoding.
 pub fn makeDirPath(cwd: std.fs.Dir, dirPath: []const u8) Result {
     cwd.makePath(dirPath) catch |e| {
         std.debug.print("Utils::FileOrDirExists()::error: {}\n", .{e});
@@ -460,7 +464,7 @@ pub fn getOsType() []const u8 {
     };
 }
 
-///TODO: Figure out how to add format option to logger
+/// TODO: Figure out how to add format option to logger
 /// Currently format is breaking no idea why.
 /// Even with if (!isDigitFormat and isDigit) it still crashes even if isDigitFormat === false and isDigit is === true
 pub fn convertToString(
@@ -510,6 +514,12 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 
 pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return std.mem.endsWith(T, haystack, needle);
+}
+
+/// sleep() - Takes a duration in milliseconds
+pub fn sleep(durrationMs: u64) void {
+    const multiplier: f64 = 1e6;
+    time.sleep(durrationMs * multiplier);
 }
 
 // pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {

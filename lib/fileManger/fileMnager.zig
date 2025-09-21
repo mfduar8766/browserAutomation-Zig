@@ -17,6 +17,12 @@ pub const Actions = enum {
     startUIDetached,
     ///startExampleUISh - ./startExampleUI.sh
     startExampleUISh,
+    ///startE2eDetached - ./startE2eDetached.sh
+    startE2eDetached,
+    ///deleteE2eDetached - ./deleteE2eDetached.sh
+    deleteE2eDetached,
+    ///startE2eSh - ./startE2e.sh
+    startE2eSh,
 };
 
 const Files = struct {
@@ -46,11 +52,19 @@ const Files = struct {
     comptime startExampleDetachedSh: []const u8 = "./startUIDetached.sh",
     ///startExampleDetachedShW - .\\startExampleDetachedShW.sh
     comptime startExampleDetachedShW: []const u8 = ".\\startUIDetached.sh",
+    comptime electronFolder: []const u8 = "electron",
+    comptime startE2eSh: []const u8 = "./startE2e.sh",
+    comptime startE2eShW: []const u8 = ".\\startE2e.sh",
+    comptime startE2eDetachedSh: []const u8 = "./startE2eDetached.sh",
+    comptime startE2eDetachedShW: []const u8 = ".\\startE2eDetached.sh",
+    comptime deleteE2eDetachedSh: []const u8 = "deleteE2eDetached.sh",
+    comptime deleteE2eDetachedShW: []const u8 = ".\\deleteE2eDetached.sh",
 };
 
 pub const FileManager = struct {
     const Self = @This();
     const chromeDriverSession: []const u8 = "chromeDriverSession";
+    const E2eSession: []const u8 = "E2eSession";
     const chromedriver: []const u8 = "chromedriver";
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
@@ -71,9 +85,9 @@ pub const FileManager = struct {
     }
     pub fn deInit(self: *Self) void {
         self.arena.deinit();
-        self.driverOutFile.close();
-        self.screenShotsDir.close();
-        self.logger.closeDirAndFiles();
+        // self.driverOutFile.close();
+        // self.screenShotsDir.close();
+        // self.logger.closeDirAndFiles();
     }
     pub fn log(self: *Self, logType: Types.LogLevels, message: []const u8, data: anytype) !void {
         switch (logType) {
@@ -169,11 +183,11 @@ pub const FileManager = struct {
         }
     }
     pub fn runExampleUI(self: *Self) !void {
-        const startUIShFileData =
+        const startUIShFileData: []const u8 =
             \\#!/bin/bash
             \\echo "Change dir to UI and start node server..."
             \\cd "UI"
-            \\node index.js
+            \\npm run start
         ;
         const cwd = Utils.getCWD();
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
@@ -203,6 +217,51 @@ pub const FileManager = struct {
         };
         code = try Utils.executeCmds(1, self.getAllocator(), &arg2);
         try Utils.checkExitCode(code.exitCode, code.message);
+    }
+    pub fn startE2E(self: *Self) !void {
+        const cwd = Utils.getCWD();
+        const CWD_PATH = try cwd.realpathAlloc(self.getAllocator(), ".");
+        defer self.getAllocator().free(CWD_PATH);
+        std.debug.print("CWD: {s}\n", .{CWD_PATH});
+        try self.logger.info("FileManager::startE2E()::electron folder exists", null);
+
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
+
+        var delteE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.deleteE2eDetached), .{});
+        try delteE2eDetached.chmod(777);
+        const deleteSession = try createDeleteDetachedShFileData(E2eSession, "node");
+        delteE2eDetached.writeAll(deleteSession) catch |err| {
+            @panic(@errorName(err));
+        };
+        var startE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.startE2eDetached), .{});
+        try startE2eDetached.chmod(777);
+        const fileData = try createStartDetachedShFileData(E2eSession, "node", self.setShFileByOs(Actions.startE2eSh));
+        startE2eDetached.writeAll(fileData) catch |e| {
+            @panic(@errorName(e));
+        };
+        const startE2eShBody: []const u8 =
+            \\#!/bin/bash
+            \\echo "starting E2E...\n"
+            \\cd "{s}/dist/mac/E2E.app/Contents/MacOS/"
+            \\./E2E &
+        ;
+        var buf: [100]u8 = undefined;
+        const formattedE2eFileData = try Utils.formatString(100, &buf, startE2eShBody, .{self.files.electronFolder});
+        var e2eFile = try cwd.createFile(self.setShFileByOs(Actions.startE2eSh), .{});
+        try e2eFile.chmod(777);
+        e2eFile.writeAll(formattedE2eFileData) catch |er| {
+            @panic(@errorName(er));
+        };
+        try self.executeFiles(self.setShFileByOs(Actions.startE2eDetached));
+        std.debug.print("Sleeping for 5 seconds...\n", .{});
+        std.time.sleep(5_000_000_000);
+        std.debug.print("Calling stop E2E...\n", .{});
+        try self.executeFiles(self.setShFileByOs(Actions.deleteE2eDetached));
+        defer e2eFile.close();
+        defer delteE2eDetached.close();
+        defer startE2eDetached.close();
     }
     pub fn setShFileByOs(self: *Self, action: Actions) []const u8 {
         return switch (action) {
@@ -235,6 +294,24 @@ pub const FileManager = struct {
                     return self.files.deleteDriverDetachedShW;
                 }
                 return self.files.createDeleteDriverDetachedSh;
+            },
+            Actions.startE2eDetached => {
+                if (self.isWindows()) {
+                    return self.files.startE2eDetachedShW;
+                }
+                return self.files.startE2eDetachedSh;
+            },
+            Actions.deleteE2eDetached => {
+                if (self.isWindows()) {
+                    return self.files.deleteE2eDetachedShW;
+                }
+                return self.files.deleteE2eDetachedSh;
+            },
+            Actions.startE2eSh => {
+                if (self.isWindows()) {
+                    return self.files.startE2eShW;
+                }
+                return self.files.startE2eSh;
             },
         };
     }

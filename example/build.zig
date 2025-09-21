@@ -14,6 +14,11 @@ pub fn build(b: *std.Build) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
+
+    const options = b.addOptions();
+    const e2e = b.option(bool, "e2e", "Run E2e Mode") orelse false;
+    options.addOption(bool, "e2e", e2e);
+
     const exe = b.addExecutable(.{
         .name = "example",
         .root_source_file = b.path("src/main.zig"),
@@ -32,12 +37,16 @@ pub fn build(b: *std.Build) void {
         },
         .root_source_file = b.path("../automation/src/main.zig"),
     });
+    driver.addOptions("config", options);
+
+    exe.root_module.addImport("driver", driver);
+    exe.root_module.addImport("common", common);
+    exe.root_module.addOptions("config", options);
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(exe);
-    exe.root_module.addImport("driver", driver);
-    exe.root_module.addImport("common", common);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

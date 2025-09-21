@@ -7,6 +7,7 @@ const DriverTypes = @import("./types.zig");
 const process = std.process;
 const FileManager = @import("common").FileManager;
 const FileActions = @import("common").Actions;
+const config = @import("config");
 
 const RequestUrlPaths = enum {
     NEW_SESSION,
@@ -218,15 +219,18 @@ pub const Driver = struct {
             try driver.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
         }
         try driver.fileManager.executeFiles(driver.fileManager.setShFileByOs(FileActions.startDriverDetached));
+        if (config.e2e) {
+            try driver.fileManager.startE2E();
+        }
         return driver;
     }
     pub fn deInit(self: *Self) void {
         self.allocator.free(self.sessionID);
         self.fileManager.deInit();
     }
-    ///setHeadlessMode - used to run without a browser.
+    ///setHeadlessMode - Used to run without a browser.
     ///
-    /// Call before waitForDriver() and launchWindow().
+    ///Call before waitForDriver() and launchWindow().
     pub fn setHeadlessMode(self: *Self) void {
         if (self.isDriverRunning) {
             @panic("Driver::setHeadlessMode()::cannot call this after driver is running. Exiting function...");
