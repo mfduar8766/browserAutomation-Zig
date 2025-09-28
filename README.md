@@ -1,3 +1,7 @@
+# Purpose:
+
+This is to learn Ziglang. Building a browser autimation tool like Cypress/PlayWrite. Or at least trying to.
+
 # Structure:
 
 Project structure simplified

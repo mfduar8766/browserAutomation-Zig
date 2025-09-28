@@ -219,9 +219,6 @@ pub const Driver = struct {
             try driver.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
         }
         try driver.fileManager.executeFiles(driver.fileManager.setShFileByOs(FileActions.startDriverDetached));
-        if (config.e2e) {
-            try driver.fileManager.startE2E();
-        }
         return driver;
     }
     pub fn deInit(self: *Self) void {
@@ -251,10 +248,10 @@ pub const Driver = struct {
         if (!self.isDriverRunning) {
             @panic("Driver::launchWindow()::driver is not running...");
         }
-        if (self.isDriverRunning) {
-            try self.getSessionID();
-            try self.navigateToSite(url);
-        }
+        self.handleLaunchWindow(url) catch |e| {
+            Utils.printLn("Driver::launchWindow()::Caught error: {}\n", .{e});
+            @panic("Driver::launchWindow()::cannout open the browser");
+        };
     }
     pub fn closeWindow(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
@@ -919,5 +916,17 @@ pub const Driver = struct {
             },
         }
         return findElementQuery;
+    }
+    fn handleLaunchWindow(self: *Self, url: []const u8) !void {
+        if (self.isDriverRunning) {
+            if (config.te2e) {
+                self.setHeadlessMode();
+                try self.getSessionID();
+                try self.fileManager.startE2E(url);
+            } else {
+                try self.getSessionID();
+                try self.navigateToSite(url);
+            }
+        }
     }
 };

@@ -9,6 +9,30 @@ const process = std.process;
 const print = std.debug.print;
 const builtIn = @import("builtin");
 
+pub const Errors = error{
+    FileNotFound,
+    EmptyFile,
+    InputOutput,
+    AccessDenied,
+    BrokenPipe,
+    SystemResources,
+    OperationAborted,
+    LockViolation,
+    WouldBlock,
+    ConnectionResetByPeer,
+    ProcessNotFound,
+    Unexpected,
+    IsDir,
+    ConnectionTimedOut,
+    NotOpenForReading,
+    SocketNotConnected,
+    Canceled,
+    StreamTooLong,
+    EnvironmentVariableNotFound,
+};
+
+pub const MAX_BUFF_SIZE = 1024;
+
 pub const ExecCmdResponse = struct {
     exitCode: i32 = 0,
     message: []const u8 = "",
@@ -227,7 +251,7 @@ pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mo
     };
 }
 
-pub fn concatStrings(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]u8 {
+pub fn concatStrings(allocator: Allocator, a: []const u8, b: []const u8) ![]u8 {
     var bytes = try allocator.alloc(u8, a.len + b.len);
     std.mem.copyForwards(u8, bytes, a);
     std.mem.copyForwards(u8, bytes[a.len..], b);
@@ -238,7 +262,7 @@ pub fn openDir(dir: std.fs.Dir, dirName: []const u8) !fs.Dir {
     return try dir.makeOpenPath(dirName, .{ .access_sub_paths = true, .iterate = true });
 }
 
-pub fn readCmdArgs(comptime T: type, allocator: std.mem.Allocator, args: *std.process.ArgIterator) !std.json.Parsed(T) {
+pub fn readCmdArgs(comptime T: type, allocator: Allocator, args: *std.process.ArgIterator) !std.json.Parsed(T) {
     var optionsFile: []const u8 = "";
     while (args.next()) |a| {
         var splitArgs = std.mem.splitAny(u8, a, "=");
@@ -270,7 +294,7 @@ pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, optio
     return try std.json.parseFromSlice(T, allocator, body, options);
 }
 
-pub fn stringify(allocator: std.mem.Allocator, comptime T: type, value: anytype, options: std.json.StringifyOptions) ![]u8 {
+pub fn stringify(allocator: Allocator, comptime T: type, value: anytype, options: std.json.StringifyOptions) ![]u8 {
     var arrayList = std.ArrayList(T).init(allocator);
     try std.json.stringify(value, options, arrayList.writer());
     const bytes = try allocator.alloc(u8, arrayList.items.len);
@@ -298,7 +322,7 @@ pub fn indexOf(comptime T: type, slice: T, comptime T2: type, value: T2) isize {
     return index;
 }
 
-pub fn executeCmds(argsLen: comptime_int, allocator: std.mem.Allocator, args: *const [argsLen][]const u8) !ExecCmdResponse {
+pub fn executeCmds(argsLen: comptime_int, allocator: Allocator, args: *const [argsLen][]const u8) !ExecCmdResponse {
     print("Utils::executeCmds()::running {s}\n", .{args.*});
     var returnStruct = ExecCmdResponse{};
     var child = process.Child.init(args, allocator);
@@ -403,7 +427,7 @@ pub fn intToString(T: type, buf: []const u8, base: ?u8) !T {
 }
 
 // TODO: Fix this later
-pub fn getPID(allocator: std.mem.Allocator, bufLen: comptime_int, buf: *[bufLen]u8, processName: []const u8) !ExecCmdResponse {
+pub fn getPID(allocator: Allocator, bufLen: comptime_int, buf: *[bufLen]u8, processName: []const u8) !ExecCmdResponse {
     const query = try std.fmt.bufPrint(buf, "{s}", .{processName});
     print("F: {s}\n", .{query});
     const args = [_][]const u8{
@@ -415,7 +439,7 @@ pub fn getPID(allocator: std.mem.Allocator, bufLen: comptime_int, buf: *[bufLen]
     return response;
 }
 
-pub fn checkIfPortInUse(allocator: std.mem.Allocator, port: i32) !ExecCmdResponse {
+pub fn checkIfPortInUse(allocator: Allocator, port: i32) !ExecCmdResponse {
     var buf: [6]u8 = undefined;
     const formattedPort = try formatString(6, &buf, ":{d}", .{port});
     const args = [_][]const u8{
@@ -518,8 +542,70 @@ pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
 
 /// sleep() - Takes a duration in milliseconds
 pub fn sleep(durrationMs: u64) void {
-    const multiplier: f64 = 1e6;
-    time.sleep(durrationMs * multiplier);
+    const multiplier = @as(u64, @intFromFloat(1e6));
+    const duration = durrationMs * multiplier;
+    time.sleep(duration);
+}
+
+pub fn splitStr(allocator: Allocator, string: []const u8, size: usize, delimiters: []const u8, append: ?[]const u8) ![][]const u8 {
+    var arrayList = try std.ArrayList([]const u8).initCapacity(allocator, size);
+    var itter = std.mem.splitAny(u8, string, delimiters);
+    while (itter.next()) |value| {
+        try arrayList.append(value);
+    }
+    if (append) |app| {
+        try arrayList.append(app);
+    }
+    return try arrayList.toOwnedSlice();
+}
+
+pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
+    const cwd = getCWD();
+    const fileName: []const u8 = ".env";
+    const CWD_PATH = @as([]const u8, try cwd.realpathAlloc(allocator, "../"));
+    defer allocator.free(CWD_PATH);
+    const split = try splitStr(allocator, CWD_PATH, 1024, "/", fileName);
+    const file_path = try std.mem.join(allocator, "/", split);
+    defer allocator.free(split);
+    defer allocator.free(file_path);
+
+    fileExists(cwd, file_path) catch |e| {
+        printLn("Utils::getEnvVar()::received error {}", e);
+        if (e == Errors.FileNotFound) {
+            return try std.process.getEnvVarOwned(allocator, key);
+        }
+    };
+    const file = cwd.openFile(file_path, .{ .mode = .read_only }) catch |er| {
+        printLn("Utils::getEnvVar()::received error {}", er);
+        return er;
+    };
+    defer file.close();
+
+    const fileStat = file.stat() catch |er| {
+        printLn("Utils::getEnvVar()::received error: {}", er);
+        return er;
+    };
+    if (fileStat.size == 0) {
+        return Errors.EmptyFile;
+    }
+    var buf_reader = io.bufferedReader(file.reader());
+    var in_stream = buf_reader.reader();
+    var buf: [1024]u8 = undefined;
+    var value: []const u8 = "";
+    var bytes: []u8 = undefined;
+    while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        if (startsWith(u8, @as([]const u8, line), key)) {
+            const envValue = try splitStr(allocator, @as([]const u8, line), 100, "=", undefined);
+            defer allocator.free(envValue);
+            if (envValue.len > 0) {
+                value = envValue[1];
+                bytes = try allocator.alloc(u8, value.len);
+                std.mem.copyForwards(u8, bytes, value);
+                break;
+            }
+        }
+    }
+    return bytes;
 }
 
 // pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {

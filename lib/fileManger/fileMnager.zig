@@ -57,7 +57,7 @@ const Files = struct {
     comptime startE2eShW: []const u8 = ".\\startE2e.sh",
     comptime startE2eDetachedSh: []const u8 = "./startE2eDetached.sh",
     comptime startE2eDetachedShW: []const u8 = ".\\startE2eDetached.sh",
-    comptime deleteE2eDetachedSh: []const u8 = "deleteE2eDetached.sh",
+    comptime deleteE2eDetachedSh: []const u8 = "./deleteE2eDetached.sh",
     comptime deleteE2eDetachedShW: []const u8 = ".\\deleteE2eDetached.sh",
 };
 
@@ -218,49 +218,56 @@ pub const FileManager = struct {
         code = try Utils.executeCmds(1, self.getAllocator(), &arg2);
         try Utils.checkExitCode(code.exitCode, code.message);
     }
-    pub fn startE2E(self: *Self) !void {
+    pub fn startE2E(self: *Self, url: []const u8) !void {
         const cwd = Utils.getCWD();
         const CWD_PATH = try cwd.realpathAlloc(self.getAllocator(), ".");
         defer self.getAllocator().free(CWD_PATH);
-        std.debug.print("CWD: {s}\n", .{CWD_PATH});
-        try self.logger.info("FileManager::startE2E()::electron folder exists", null);
+        Utils.printLn("CWD: {s}\n", .{CWD_PATH});
+        // try self.logger.info("FileManager::startE2E()::electron folder exists", null);
+        // /Users/matheusduarte/Desktop/browserAutomation-Zig/e2e/deleteE2eDetached.sh
 
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
 
-        var delteE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.deleteE2eDetached), .{});
-        try delteE2eDetached.chmod(777);
+        var deleteE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.deleteE2eDetached), .{});
+        try deleteE2eDetached.chmod(777);
         const deleteSession = try createDeleteDetachedShFileData(E2eSession, "node");
-        delteE2eDetached.writeAll(deleteSession) catch |err| {
+        deleteE2eDetached.writeAll(deleteSession) catch |err| {
+            Utils.printLn("FileManager::startE2E()::Caught error: {}\n", .{err});
             @panic(@errorName(err));
         };
         var startE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.startE2eDetached), .{});
         try startE2eDetached.chmod(777);
         const fileData = try createStartDetachedShFileData(E2eSession, "node", self.setShFileByOs(Actions.startE2eSh));
         startE2eDetached.writeAll(fileData) catch |e| {
+            Utils.printLn("FileManager::startE2E()::Caught error: {}\n", .{e});
             @panic(@errorName(e));
         };
         const startE2eShBody: []const u8 =
             \\#!/bin/bash
             \\echo "starting E2E...\n"
             \\cd "{s}/dist/mac/E2E.app/Contents/MacOS/"
-            \\./E2E &
+            \\./E2E --url={s} &
         ;
-        var buf: [100]u8 = undefined;
-        const formattedE2eFileData = try Utils.formatString(100, &buf, startE2eShBody, .{self.files.electronFolder});
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        const formattedE2eFileData = try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf, startE2eShBody, .{
+            self.files.electronFolder,
+            url,
+        });
         var e2eFile = try cwd.createFile(self.setShFileByOs(Actions.startE2eSh), .{});
         try e2eFile.chmod(777);
         e2eFile.writeAll(formattedE2eFileData) catch |er| {
             @panic(@errorName(er));
         };
         try self.executeFiles(self.setShFileByOs(Actions.startE2eDetached));
-        std.debug.print("Sleeping for 5 seconds...\n", .{});
-        std.time.sleep(5_000_000_000);
+        std.debug.print("Sleeping for 60 seconds...\n", .{});
+        // std.time.sleep(5_000_000_000);
+        Utils.sleep(60000);
         std.debug.print("Calling stop E2E...\n", .{});
         try self.executeFiles(self.setShFileByOs(Actions.deleteE2eDetached));
         defer e2eFile.close();
-        defer delteE2eDetached.close();
+        defer deleteE2eDetached.close();
         defer startE2eDetached.close();
     }
     pub fn setShFileByOs(self: *Self, action: Actions) []const u8 {

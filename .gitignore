@@ -8,3 +8,5 @@ zig-*
 **/node_modules
 **/screenShots/**
 **/electron/**
+**/dist/**
+.env

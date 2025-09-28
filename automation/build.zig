@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
         .preferred_optimize_mode = .ReleaseSafe,
     });
 
-    const e2e = b.option(bool, "e2e", "Run E2e Mode") orelse false;
+    const e2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
     const options = b.addOptions();
     options.addOption(bool, "e2e", e2e);
 
@@ -102,3 +102,11 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 }
+
+// const std = @import("std");
+
+// pub fn build(b: *std.Build) void {
+//     _ = b.addModule("driver", .{
+//         .root_source_file = b.path("src/main.zig"),
+//     });
+// }
