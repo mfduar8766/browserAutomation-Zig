@@ -7,6 +7,6 @@
 zig-*
 **/node_modules
 **/screenShots/**
-**/electron/**
+# **/electron/**
 **/dist/**
 .env

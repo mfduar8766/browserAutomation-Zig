@@ -1,0 +1,29 @@
+{
+  "name": "e2e",
+  "version": "1.0.0",
+  "description": "E2E is used for test automation",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron-builder": "^26.0.20",
+    "electron": "^38.1.2"
+  },
+  "build": {
+    "appId": "com.yourapp.name",
+    "productName": "E2E",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "target": "default"
+    }
+  }
+}

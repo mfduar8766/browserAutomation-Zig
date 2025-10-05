@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="index.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+  </head>
+  <body>
+    <div style="display: flex; flex-direction: row; height: 100%; width: 100%">
+      <div
+        style="
+          overflow-y: scroll;
+          overflow-x: hidden;
+          height: 100%;
+          width: auto;
+          background-color: rgb(98, 78, 227);
+        "
+      >
+        <div style="color: white; text-wrap: pretty; margin-top: 1rem">
+          TestName
+        </div>
+        <ul>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+          <li>FOO</li>
+        </ul>
+      </div>
+      <!-- CHROME HEADER DARK MODE IS 21 21 21 AND  TABS 42 42 42 -->
+      <div
+        style="display: flex; flex-direction: column; height: 100%; width: 100%"
+      >
+        <div style="width: 100%">
+          <div
+            style="
+              display: flex;
+              flex-direction: row;
+              justify-content: flex-start;
+              align-items: center;
+              width: 100%;
+              background-color: rgb(21, 21, 21);
+            "
+          >
+            <div
+              style="
+                display: flex;
+                flex-direction: row;
+                justify-content: center;
+                align-items: center;
+                width: 25%;
+                padding-left: 1rem;
+              "
+            >
+              <div style="width: 25%">
+                <i
+                  id="goBack"
+                  style="color: white"
+                  class="fa-solid fa-arrow-left"
+                ></i>
+              </div>
+              <div style="width: 25%">
+                <i
+                  id="goForward"
+                  style="color: white"
+                  class="fa-solid fa-arrow-right"
+                ></i>
+              </div>
+              <div style="width: 25%">
+                <i
+                  id="reload"
+                  style="color: white"
+                  class="fa-solid fa-rotate-right"
+                ></i>
+              </div>
+              <div style="width: 25%"></div>
+            </div>
+            <form style="background-color: rgb(21, 21, 21); width: 100%">
+              <input type="text" id="search-box" name="search" placeholder="" />
+            </form>
+            <div style="width: 30%"></div>
+          </div>
+        </div>
+        <webview id="myWebview"></webview>
+      </div>
+    </div>
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>
