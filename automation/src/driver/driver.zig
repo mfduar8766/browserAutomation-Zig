@@ -249,7 +249,7 @@ pub const Driver = struct {
             @panic("Driver::launchWindow()::driver is not running...");
         }
         self.handleLaunchWindow(url) catch |e| {
-            Utils.printLn("Driver::launchWindow()::Caught error: {}\n", .{e});
+            self.fileManager.logger.fatal("Driver::launchWindow()::Caught error: {}\n", @errorName(e));
             @panic("Driver::launchWindow()::cannout open the browser");
         };
     }
@@ -298,7 +298,7 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const body = try Utils.stringify(
@@ -477,7 +477,7 @@ pub const Driver = struct {
             &urlBuf,
             elementID,
         );
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const body = try Utils.stringify(allocator, u8, payload, .{});
@@ -577,7 +577,7 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const windowSize = SetWindowHeightAndWidthPayload{ .height = self.height, .width = self.width };
@@ -640,7 +640,7 @@ pub const Driver = struct {
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(RequestUrlPaths.NEW_SESSION, bufLen, &urlBuf, null);
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var arrayList = std.ArrayList(u8).init(fba.allocator());
         defer arrayList.deinit();
@@ -684,7 +684,7 @@ pub const Driver = struct {
         defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
         defer req.deinit();
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var arrayList = std.ArrayList(u8).init(fba.allocator());
         defer arrayList.deinit();
@@ -703,7 +703,10 @@ pub const Driver = struct {
                 if (code.exitCode == 0) {
                     var buf: [6]u8 = undefined;
                     const intToString = try std.fmt.bufPrint(&buf, "{d}", .{code.exitCode});
-                    try self.fileManager.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port is currently in use", @as([]const u8, intToString));
+                    try self.fileManager.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port is currently in use", @as(
+                        []const u8,
+                        intToString,
+                    ));
                     @panic("Driver::checkoptins()::port is in use, exiting program...");
                 }
                 self.chromeDriverPort = port;

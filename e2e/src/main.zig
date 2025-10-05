@@ -17,4 +17,7 @@ pub fn main() !void {
     var FM = try FileManager.init(allocator);
     defer FM.deInit();
     try FM.startE2E(value);
+    Utils.printLn("Sleeping for 30 seconds...", .{});
+    Utils.sleep(30000);
+    try FM.stopE2E();
 }
