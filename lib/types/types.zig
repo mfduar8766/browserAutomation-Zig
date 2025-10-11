@@ -158,4 +158,20 @@ const ChromeHeadlessShell = struct {
     url: []u8,
 };
 
-pub const FileExtensions = enum(u8) { TXT, PNG, JPG, LOG };
+pub const FileExtensions = enum(u8) {
+    TXT,
+    PNG,
+    JPG,
+    LOG,
+    SH,
+    pub fn get(key: u8) []const u8 {
+        return switch (key) {
+            0 => "txt",
+            1 => "png",
+            2 => "jpg",
+            3 => "log",
+            4 => "sh",
+            else => "",
+        };
+    }
+};

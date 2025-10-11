@@ -734,7 +734,7 @@ pub const Driver = struct {
         const args = [_][]const u8{
             "lsof", "-i", formattedPort,
         };
-        const response = try Utils.executeCmds(3, self.allocator, &args);
+        const response = try Utils.executeCmds(3, self.allocator, &args, "");
         return response;
     }
     fn getRequestUrl(

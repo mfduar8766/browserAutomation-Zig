@@ -10,3 +10,4 @@ zig-*
 # **/electron/**
 **/dist/**
 .env
+**.log
