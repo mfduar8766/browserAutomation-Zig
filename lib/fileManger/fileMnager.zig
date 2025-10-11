@@ -17,6 +17,14 @@ pub const Actions = enum {
     startUIDetached,
     ///startExampleUISh - ./startExampleUI.sh
     startExampleUISh,
+    ///startE2eDetached - ./startE2eDetached.sh
+    startE2eDetached,
+    ///deleteE2eDetached - ./deleteE2eDetached.sh
+    deleteE2eDetached,
+    ///startE2eSh - ./startE2e.sh
+    startE2eSh,
+    ///buildAndInstallSh - ./buildAndInstall.sh
+    buildAndInstallSh,
 };
 
 const Files = struct {
@@ -46,11 +54,24 @@ const Files = struct {
     comptime startExampleDetachedSh: []const u8 = "./startUIDetached.sh",
     ///startExampleDetachedShW - .\\startExampleDetachedShW.sh
     comptime startExampleDetachedShW: []const u8 = ".\\startUIDetached.sh",
+    comptime electronFolder: []const u8 = "electron",
+    comptime startE2eSh: []const u8 = "./startE2e.sh",
+    comptime startE2eShW: []const u8 = ".\\startE2e.sh",
+    comptime startE2eDetachedSh: []const u8 = "./startE2eDetached.sh",
+    comptime startE2eDetachedShW: []const u8 = ".\\startE2eDetached.sh",
+    comptime deleteE2eDetachedSh: []const u8 = "./deleteE2eDetached.sh",
+    comptime deleteE2eDetachedShW: []const u8 = ".\\deleteE2eDetached.sh",
+    ///e2eRunner - E2e nodeJS process name
+    comptime e2eRunner: []const u8 = "e2e-runner",
+    comptime electronBuildPath: []const u8 = "dist/mac/E2E.app/Contents/MacOS",
+    comptime buildAndInstallSh: []const u8 = "./buildAndInstall.sh",
+    comptime buildAndInstallShW: []const u8 = ".\\buildAndInstall.sh",
 };
 
 pub const FileManager = struct {
     const Self = @This();
     const chromeDriverSession: []const u8 = "chromeDriverSession";
+    const E2eSession: []const u8 = "E2eSession";
     const chromedriver: []const u8 = "chromedriver";
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
@@ -65,15 +86,17 @@ pub const FileManager = struct {
         };
         fileManager.logger = Logger.init(fileManager.files.loggerFileDir) catch |e| {
             std.debug.print("FileManager::init()::received error: {s}\n", .{@errorName(e)});
+            fileManager.arena.deinit();
             @panic("FileManager::init()::failed to init fileManager, exiting program...");
         };
         return fileManager;
     }
     pub fn deInit(self: *Self) void {
         self.arena.deinit();
-        self.driverOutFile.close();
-        self.screenShotsDir.close();
-        self.logger.closeDirAndFiles();
+        // self.driverOutFile.close();
+        // self.screenShotsDir.close();
+        self.logger.deinit();
+        // self.logger.closeDirAndFiles();
     }
     pub fn log(self: *Self, logType: Types.LogLevels, message: []const u8, data: anytype) !void {
         switch (logType) {
@@ -90,7 +113,7 @@ pub const FileManager = struct {
         try self.createScreenShotDir();
     }
     pub fn writeToStdOut(self: *Self) !void {
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         const data = try self.logger.logDir.readFile(self.files.driverOutFile, &buf);
         const outw = std.io.getStdOut().writer();
         try outw.print("{s}\n", .{data});
@@ -102,12 +125,12 @@ pub const FileManager = struct {
                 "+x",
                 fileName,
             };
-            var code = try Utils.executeCmds(3, self.getAllocator(), &argv);
-            try Utils.checkExitCode(code.exitCode, "FileManager::executeFiles()::cannot open chromeDriver, exiting program...");
+            var code = try Utils.executeCmds(3, self.getAllocator(), &argv, fileName);
+            try Utils.checkExitCode(code.exitCode, code.message);
             const arg2 = [1][]const u8{
                 fileName,
             };
-            code = try Utils.executeCmds(1, self.getAllocator(), &arg2);
+            code = try Utils.executeCmds(1, self.getAllocator(), &arg2, fileName);
             try Utils.checkExitCode(code.exitCode, code.message);
         } else {
             const argv = [3][]const u8{
@@ -115,30 +138,28 @@ pub const FileManager = struct {
                 "+x",
                 fileName,
             };
-            var code = try Utils.executeCmds(3, self.getAllocator(), &argv);
-            try Utils.checkExitCode(code.exitCode, "FileManager::executeFiles()::cannot open chromeDriver, exiting program...");
+            var code = try Utils.executeCmds(3, self.getAllocator(), &argv, fileName);
+            try Utils.checkExitCode(code.exitCode, code.message);
             const arg2 = [1][]const u8{
                 fileName,
             };
-            code = try Utils.executeCmds(1, self.getAllocator(), &arg2);
+            code = try Utils.executeCmds(1, self.getAllocator(), &arg2, fileName);
             try Utils.checkExitCode(code.exitCode, code.message);
         }
     }
     pub fn downloadChromeDriverVersionInformation(self: *Self, downloadURL: []const u8) !void {
-        const serverHeaderBuf: []u8 = try self.getAllocator().alloc(u8, 1024 * 8);
+        const serverHeaderBuf: []u8 = try self.getAllocator().alloc(u8, Utils.MAX_BUFF_SIZE * 8);
+        self.getAllocator().free(serverHeaderBuf);
         var req = Http.init(self.getAllocator(), .{ .maxReaderSize = 8696 });
+        req.deinit();
         const body = try req.get(downloadURL, .{ .server_header_buffer = serverHeaderBuf }, undefined);
-        var buf: [1024 * 8]u8 = undefined;
+        self.getAllocator().free(body);
+        var buf: [Utils.MAX_BUFF_SIZE * 8]u8 = undefined;
         const numAsString = try std.fmt.bufPrint(&buf, "{}", .{body.len});
         try self.logger.info("FileManager::downloadChromeDriver()::successfully downloaded btypes", numAsString);
         const res = try std.json.parseFromSlice(Types.ChromeDriverResponse, self.getAllocator(), body, .{ .ignore_unknown_fields = true });
+        res.deinit();
         try self.downoadChromeDriverZip(res.value);
-        defer {
-            self.getAllocator().free(serverHeaderBuf);
-            self.getAllocator().free(body);
-            req.deinit();
-            res.deinit();
-        }
     }
     pub fn saveScreenShot(self: *Self, fileName: ?[]const u8, bytes: []const u8) !void {
         var dest: [500000]u8 = undefined;
@@ -169,40 +190,115 @@ pub const FileManager = struct {
         }
     }
     pub fn runExampleUI(self: *Self) !void {
-        const startUIShFileData =
+        const startUIShFileData: []const u8 =
             \\#!/bin/bash
             \\echo "Change dir to UI and start node server..."
             \\cd "UI"
-            \\node index.js
+            \\npm run start
         ;
         const cwd = Utils.getCWD();
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
-        var startUiExampleFIle = try cwd.createFile(self.setShFileByOs(Actions.startExampleUISh), .{ .truncate = true });
+        var startUiExampleFIle = try cwd.createFile(self.setShFileByOs(Actions.startExampleUISh), .{
+            .truncate = true,
+        });
+        defer startUiExampleFIle.close();
         try startUiExampleFIle.chmod(777);
         try startUiExampleFIle.writeAll(startUIShFileData);
-        var startExampleDetachedFile = try cwd.createFile(self.setShFileByOs(Actions.startUIDetached), .{ .truncate = true });
+        var startExampleDetachedFile = try cwd.createFile(self.setShFileByOs(Actions.startUIDetached), .{
+            .truncate = true,
+        });
+        defer startExampleDetachedFile.close();
         try startExampleDetachedFile.chmod(777);
         const startUIDeatachedFileData = try createStartDetachedShFileData("startUI", "node", self.setShFileByOs(Actions.startExampleUISh));
         startExampleDetachedFile.writeAll(startUIDeatachedFileData) catch |e| {
             @panic(@errorName(e));
         };
-        defer {
-            startExampleDetachedFile.close();
-            startUiExampleFIle.close();
-        }
+        const fileName = self.setShFileByOs(Actions.startUIDetached);
         const argv = [3][]const u8{
             "chmod",
             "+x",
-            self.setShFileByOs(Actions.startUIDetached),
+            fileName,
         };
-        var code = try Utils.executeCmds(3, self.getAllocator(), &argv);
+        var code = try Utils.executeCmds(3, self.getAllocator(), &argv, fileName);
         try Utils.checkExitCode(code.exitCode, code.message);
+        const fileName2 = self.setShFileByOs(Actions.startUIDetached);
         const arg2 = [1][]const u8{
-            self.setShFileByOs(Actions.startUIDetached),
+            fileName2,
         };
-        code = try Utils.executeCmds(1, self.getAllocator(), &arg2);
+        code = try Utils.executeCmds(1, self.getAllocator(), &arg2, fileName2);
         try Utils.checkExitCode(code.exitCode, code.message);
+    }
+    pub fn startE2E(self: *Self, url: []const u8) !void {
+        const cwd = Utils.getCWD();
+        const CWD_PATH = try cwd.realpathAlloc(self.getAllocator(), ".");
+        defer self.getAllocator().free(CWD_PATH);
+        try self.log(Types.LogLevels.INFO, "FileManger::startE2E()::file path", .{CWD_PATH});
+
+        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
+        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
+        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.buildAndInstallSh));
+
+        try self.log(Types.LogLevels.INFO, "URL", .{url});
+        self.buildAndInstall(cwd, CWD_PATH) catch |e| {
+            try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::received error:", .{e});
+            @panic(@errorName(e));
+        };
+
+        // var deleteE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.deleteE2eDetached), .{});
+        // try deleteE2eDetached.chmod(777);
+        // const deleteSession = try createDeleteDetachedShFileData(E2eSession, self.files.e2eRunner);
+        // deleteE2eDetached.writeAll(deleteSession) catch |err| {
+        //     Utils.printLn("FileManager::startE2E()::received error", .{err});
+        //     @panic(@errorName(err));
+        // };
+        // var startE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.startE2eDetached), .{});
+        // try startE2eDetached.chmod(777);
+        // const startE2eDetachedFileData = try createStartDetachedShFileData(E2eSession, self.files.e2eRunner, self.setShFileByOs(
+        //     Actions.startE2eSh,
+        // ));
+        // startE2eDetached.writeAll(startE2eDetachedFileData) catch |e| {
+        //     try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::Caught error", .{e});
+        //     @panic(@errorName(e));
+        // };
+        // // const startE2eShBody: []const u8 =
+        // //     \\#!/bin/bash
+        // //     \\echo "starting E2E...\n"
+        // //     \\cd "{s}/dist/mac/E2E.app/Contents/MacOS/"
+        // //     \\./E2E --url={s} &
+        // // ;
+        // const startE2eShBody: []const u8 =
+        //     \\#!/bin/bash
+        //     \\echo "starting E2E...\n"
+        //     \\cd "{s}/{s}/"
+        //     \\exec -a {s} ./E2E --url={s} &
+        //     \\
+        // ;
+        // var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        // const formattedE2eFileData = try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf, startE2eShBody, .{
+        //     self.files.electronFolder,
+        //     self.files.electronBuildPath,
+        //     self.files.e2eRunner,
+        //     url,
+        // });
+        // var e2eFile = try cwd.createFile(self.setShFileByOs(Actions.startE2eSh), .{});
+        // try e2eFile.chmod(777);
+        // e2eFile.writeAll(formattedE2eFileData) catch |er| {
+        //     @panic(@errorName(er));
+        // };
+        // try self.executeFiles(self.setShFileByOs(Actions.startE2eDetached));
+        // // std.debug.print("Sleeping for 60 seconds...\n", .{});
+        // // Utils.sleep(60000);
+        // // std.debug.print("Calling stop E2E...\n", .{});
+        // // try self.executeFiles(self.setShFileByOs(Actions.deleteE2eDetached));
+        // defer e2eFile.close();
+        // defer deleteE2eDetached.close();
+        // defer startE2eDetached.close();
+    }
+    pub fn stopE2E(self: *Self) !void {
+        try self.logger.info("Calling stop E2E...", null);
+        try self.executeFiles(self.setShFileByOs(Actions.deleteE2eDetached));
     }
     pub fn setShFileByOs(self: *Self, action: Actions) []const u8 {
         return switch (action) {
@@ -235,6 +331,30 @@ pub const FileManager = struct {
                     return self.files.deleteDriverDetachedShW;
                 }
                 return self.files.createDeleteDriverDetachedSh;
+            },
+            Actions.startE2eDetached => {
+                if (self.isWindows()) {
+                    return self.files.startE2eDetachedShW;
+                }
+                return self.files.startE2eDetachedSh;
+            },
+            Actions.deleteE2eDetached => {
+                if (self.isWindows()) {
+                    return self.files.deleteE2eDetachedShW;
+                }
+                return self.files.deleteE2eDetachedSh;
+            },
+            Actions.startE2eSh => {
+                if (self.isWindows()) {
+                    return self.files.startE2eShW;
+                }
+                return self.files.startE2eSh;
+            },
+            Actions.buildAndInstallSh => {
+                if (self.isWindows()) {
+                    return self.files.buildAndInstallShW;
+                }
+                return self.files.buildAndInstallSh;
             },
         };
     }
@@ -270,7 +390,7 @@ pub const FileManager = struct {
         if (chromeDriverFileName.len == 0 or Utils.eql(u8, chromeDriverFileName, "UNKNOWN")) {
             @panic("FileManager::downoadChromeDriverZip()::wrong osType exiting program...");
         }
-        const serverHeaderBuf: []u8 = try self.getAllocator().alloc(u8, 1024 * 8);
+        const serverHeaderBuf: []u8 = try self.getAllocator().alloc(u8, Utils.MAX_BUFF_SIZE * 8);
         defer self.getAllocator().free(serverHeaderBuf);
         var req = Http.init(self.getAllocator(), .{ .maxReaderSize = 10679494 });
         defer req.deinit();
@@ -303,7 +423,7 @@ pub const FileManager = struct {
                 if (entry.uncompressed_size == 0) continue;
                 const totalOffSet = entry.filename_len + @sizeOf(std.zip.LocalFileHeader);
                 try seek.seekTo(@intCast(totalOffSet));
-                var buf: [1024]u8 = undefined;
+                var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
                 _ = try entry.extract(seek, .{}, &buf, dir);
             } else break;
         }
@@ -312,23 +432,23 @@ pub const FileManager = struct {
         const cwd = Utils.getCWD();
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startDriverDetached));
         var startDriverDetachedSh = try cwd.createFile(self.setShFileByOs(Actions.startDriverDetached), .{});
+        defer startDriverDetachedSh.close();
         try startDriverDetachedSh.chmod(777);
         const fileData = try createStartDetachedShFileData(chromeDriverSession, chromedriver, self.setShFileByOs(Actions.startChromeDriver));
         startDriverDetachedSh.writeAll(fileData) catch |e| {
             @panic(@errorName(e));
         };
-        defer startDriverDetachedSh.close();
     }
     fn createDeleteDriverDetachedSh(self: *Self) !void {
         const cwd = Utils.getCWD();
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteDriverDetached));
         var deleteDriverSessionDetachedSh = try cwd.createFile(self.setShFileByOs(Actions.deleteDriverDetached), .{});
+        defer deleteDriverSessionDetachedSh.close();
         try deleteDriverSessionDetachedSh.chmod(777);
         const fileData = try createDeleteDetachedShFileData(chromeDriverSession, chromedriver);
         deleteDriverSessionDetachedSh.writeAll(fileData) catch |e| {
             @panic(@errorName(e));
         };
-        defer deleteDriverSessionDetachedSh.close();
     }
     fn createDriverOutDir(self: *Self, logFilePath: ?[]const u8) ![]const u8 {
         var chromeDriverLogFilePath: []const u8 = "";
@@ -352,10 +472,16 @@ pub const FileManager = struct {
     fn createStartChromeDriverSh(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
         const cwd = Utils.getCWD();
         const chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.chromeDriverOutFilePath);
+        defer self.getAllocator().free(chromeDriverLogFilePath);
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startChromeDriver));
         var startChromeDriver = try cwd.createFile(self.setShFileByOs(Actions.startChromeDriver), .{});
+        defer startChromeDriver.close();
         try startChromeDriver.chmod(777);
-        var chromeDriverPathArray = try std.ArrayList([]const u8).initCapacity(self.getAllocator(), 1024);
+        var chromeDriverPathArray = try std.ArrayList([]const u8).initCapacity(
+            self.getAllocator(),
+            Utils.MAX_BUFF_SIZE,
+        );
+        defer chromeDriverPathArray.deinit();
         var splitChromePath = std.mem.splitSequence(u8, chromeDriverOptions.chromeDriverExecPath.?, "/");
         while (splitChromePath.next()) |next| {
             try chromeDriverPathArray.append(next);
@@ -372,14 +498,16 @@ pub const FileManager = struct {
             @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
         }
         const chromeDriverFolderPath = try std.mem.join(self.getAllocator(), "/", chromeDriverPathArray.items);
-        var buf4: [1024]u8 = undefined;
+        defer self.getAllocator().free(chromeDriverFolderPath);
+        var buf4: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         const fileContents =
             \\#!/bin/bash
             \\cd "{s}"
             \\chmod +x ./{s}
             \\./{s} --port={d} --log-path={s} --headless &
+            \\
         ;
-        const formattedFileContents = try Utils.formatString(1024, &buf4, fileContents, .{
+        const formattedFileContents = try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf4, fileContents, .{
             chromeDriverFolderPath,
             exeFileName,
             exeFileName,
@@ -389,12 +517,6 @@ pub const FileManager = struct {
         _ = startChromeDriver.write(formattedFileContents) catch |e| {
             @panic(@errorName(e));
         };
-        defer {
-            self.getAllocator().free(chromeDriverLogFilePath);
-            self.getAllocator().free(chromeDriverFolderPath);
-            chromeDriverPathArray.deinit();
-            startChromeDriver.close();
-        }
     }
     fn createScreenShotDir(self: *Self) !void {
         const cwd = Utils.getCWD();
@@ -427,9 +549,16 @@ pub const FileManager = struct {
             \\fi
             \\# Start a new screen session with the title $session_title and run the command to start the server
             \\screen -dmS $session_title bash -c "chmod +x {s} && {s}; exec bash"
+            \\
         ;
-        var buf: [1024]u8 = undefined;
-        return try Utils.formatString(1024, &buf, fileData, .{ serviceName, serviceName, sessionTitle, fileToRun, fileToRun });
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        return try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf, fileData, .{
+            serviceName,
+            serviceName,
+            sessionTitle,
+            fileToRun,
+            fileToRun,
+        });
     }
     fn createDeleteDetachedShFileData(
         comptime sessionTitle: []const u8,
@@ -451,8 +580,62 @@ pub const FileManager = struct {
             \\else
             \\echo "No screen session found with title: $session_title"
             \\fi
+            \\
         ;
-        var buf: [1024]u8 = undefined;
-        return try Utils.formatString(1024, &buf, fileData, .{ sessionTitle, serviceName, serviceName, "{print $1}" });
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        return try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf, fileData, .{
+            sessionTitle,
+            serviceName,
+            serviceName,
+            "{print $1}",
+        });
+    }
+    fn buildAndInstall(self: *Self, cwd: std.fs.Dir, folderNamePath: []const u8) !void {
+        var formatBuf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        // const pathToDistFolder = try Utils.formatString(Utils.MAX_BUFF_SIZE, &formatBuf, "{s}/{s}/{s}", .{
+        //     folderNamePath,
+        //     self.files.electronFolder,
+        //     "dist",
+        // });
+        const pathToElectronFolder = try Utils.formatString(Utils.MAX_BUFF_SIZE, &formatBuf, "{s}/{s}/", .{
+            folderNamePath,
+            self.files.electronFolder,
+        });
+        try self.log(Types.LogLevels.INFO, "e2e path {s}:", folderNamePath);
+        try self.log(Types.LogLevels.INFO, "electron folder path {s}:", pathToElectronFolder);
+        // try self.log(Types.LogLevels.INFO, "dist folder path {s}:", pathToDistFolder);
+        var buildAndInstallSh = try cwd.createFile(self.setShFileByOs(Actions.buildAndInstallSh), .{});
+        defer buildAndInstallSh.close();
+        try buildAndInstallSh.chmod(777);
+        const script =
+            \\#!/bin/bash
+            // \\FOLDER_NAME="{s}"
+            // \\if [ -d "$FOLDER_NAME" ]; then
+            // \\  echo "Remove dist folder and build new exe..."
+            // \\  rm -rf "$FOLDER_NAME"
+            // \\  echo "Successfully deleted dist"
+            // \\else
+            // \\  echo "Folder does not exist"
+            // \\fi
+            \\cd "{s}"
+            \\echo "Run npm install..."
+            \\npm install
+            \\echo "Successfully installed running npm run build..."
+            \\npm run build
+            \\
+        ;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        const fileData = try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf, comptime script, .{
+            // pathToDistFolder,
+            pathToElectronFolder,
+        });
+        buildAndInstallSh.writeAll(fileData) catch |e| {
+            try self.log(Types.LogLevels.ERROR, "FileManager::buildAndInstall()::received error:", @errorName(e));
+            @panic(@errorName(e));
+        };
+        self.executeFiles(self.setShFileByOs(Actions.buildAndInstallSh)) catch |er| {
+            try self.log(Types.LogLevels.ERROR, "FileManager::buildAndInstall()::received error", @errorName(er));
+            @panic(@errorName(er));
+        };
     }
 };

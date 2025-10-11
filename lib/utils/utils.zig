@@ -9,6 +9,31 @@ const process = std.process;
 const print = std.debug.print;
 const builtIn = @import("builtin");
 
+pub const Errors = error{
+    FileNotFound,
+    EmptyFile,
+    InputOutput,
+    AccessDenied,
+    BrokenPipe,
+    SystemResources,
+    OperationAborted,
+    LockViolation,
+    WouldBlock,
+    ConnectionResetByPeer,
+    ProcessNotFound,
+    Unexpected,
+    IsDir,
+    ConnectionTimedOut,
+    NotOpenForReading,
+    SocketNotConnected,
+    Canceled,
+    StreamTooLong,
+    EnvironmentVariableNotFound,
+    SegmentationFault,
+};
+
+pub const MAX_BUFF_SIZE = 1024;
+
 pub const ExecCmdResponse = struct {
     exitCode: i32 = 0,
     message: []const u8 = "",
@@ -117,7 +142,11 @@ pub fn getCWD() fs.Dir {
 }
 
 /// Calls os.makePath
-/// Calls makeDir iteratively to make an entire path (i.e. creating any parent directories that do not exist). Returns success if the path already exists and is a /// directory. This function is not atomic, and if it returns an error, the file system may have been modified regardless. On Windows, sub_path should be encoded as WTF-8. On WASI, sub_path should be encoded as valid UTF-8. On other platforms, sub_path is an opaque sequence of bytes with no particular encoding.
+/// Calls makeDir iteratively to make an entire path (i.e. creating any parent directories that do not exist).
+/// Returns success if the path already exists and is a directory.
+/// This function is not atomic, and if it returns an error, the file system may have been modified regardless.
+/// On Windows, sub_path should be encoded as WTF-8. On WASI, sub_path should be encoded as valid UTF-8.
+/// On other platforms, sub_path is an opaque sequence of bytes with no particular encoding.
 pub fn makeDirPath(cwd: std.fs.Dir, dirPath: []const u8) Result {
     cwd.makePath(dirPath) catch |e| {
         std.debug.print("Utils::FileOrDirExists()::error: {}\n", .{e});
@@ -181,10 +210,11 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
 
 pub fn createFileName(bufLen: comptime_int, buf: *[bufLen]u8, args: anytype, extension: Types.FileExtensions) ![]const u8 {
     return switch (extension) {
-        .JPG => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.JPG) }),
-        .PNG => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.PNG) }),
-        .LOG => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.LOG) }),
-        .TXT => try formatString(bufLen, buf, "{s}.{s}", .{ args, @tagName(Types.FileExtensions.TXT) }),
+        .TXT => try formatString(bufLen, buf, "{s}.{s}", .{ args, Types.FileExtensions.get(0) }),
+        .PNG => try formatString(bufLen, buf, "{s}.{s}", .{ args, Types.FileExtensions.get(1) }),
+        .JPG => try formatString(bufLen, buf, "{s}.{s}", .{ args, Types.FileExtensions.get(2) }),
+        .LOG => try formatString(bufLen, buf, "{s}.{s}", .{ args, Types.FileExtensions.get(3) }),
+        .SH => try formatString(bufLen, buf, "{s}.{s}", .{ args, Types.FileExtensions.get(4) }),
     };
 }
 
@@ -223,7 +253,7 @@ pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mo
     };
 }
 
-pub fn concatStrings(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]u8 {
+pub fn concatStrings(allocator: Allocator, a: []const u8, b: []const u8) ![]u8 {
     var bytes = try allocator.alloc(u8, a.len + b.len);
     std.mem.copyForwards(u8, bytes, a);
     std.mem.copyForwards(u8, bytes[a.len..], b);
@@ -234,7 +264,7 @@ pub fn openDir(dir: std.fs.Dir, dirName: []const u8) !fs.Dir {
     return try dir.makeOpenPath(dirName, .{ .access_sub_paths = true, .iterate = true });
 }
 
-pub fn readCmdArgs(comptime T: type, allocator: std.mem.Allocator, args: *std.process.ArgIterator) !std.json.Parsed(T) {
+pub fn readCmdArgs(comptime T: type, allocator: Allocator, args: *std.process.ArgIterator) !std.json.Parsed(T) {
     var optionsFile: []const u8 = "";
     while (args.next()) |a| {
         var splitArgs = std.mem.splitAny(u8, a, "=");
@@ -266,7 +296,7 @@ pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, optio
     return try std.json.parseFromSlice(T, allocator, body, options);
 }
 
-pub fn stringify(allocator: std.mem.Allocator, comptime T: type, value: anytype, options: std.json.StringifyOptions) ![]u8 {
+pub fn stringify(allocator: Allocator, comptime T: type, value: anytype, options: std.json.StringifyOptions) ![]u8 {
     var arrayList = std.ArrayList(T).init(allocator);
     try std.json.stringify(value, options, arrayList.writer());
     const bytes = try allocator.alloc(u8, arrayList.items.len);
@@ -294,47 +324,95 @@ pub fn indexOf(comptime T: type, slice: T, comptime T2: type, value: T2) isize {
     return index;
 }
 
-pub fn executeCmds(argsLen: comptime_int, allocator: std.mem.Allocator, args: *const [argsLen][]const u8) !ExecCmdResponse {
-    print("Utils::executeCmds()::running {s}\n", .{args.*});
-    var returnStruct = ExecCmdResponse{};
-    var child = process.Child.init(args, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-    var stdout = try std.ArrayListUnmanaged(u8).initCapacity(allocator, 1024);
-    var stderr = try std.ArrayListUnmanaged(u8).initCapacity(allocator, 1024);
-    defer {
-        stdout.deinit(allocator);
-        stderr.deinit(allocator);
+pub fn writeToStdOut(logDir: fs.Dir, outFile: []const u8) !void {
+    var buf: [MAX_BUFF_SIZE]u8 = undefined;
+    const data = try logDir.readFile(outFile, &buf);
+    const outw = std.io.getStdOut().writer();
+    try outw.print("{s}\n", .{data});
+}
+
+pub fn checkForNullPrtDeref(value: anytype) !void {
+    if (@intFromPtr(value.ptr) == 0) {
+        // Since the pointer is 0x0, it's a null pointer dereference waiting to happen.
+        // We handle this gracefully now.
+        return error.SegmentationFault;
     }
+}
+
+pub fn executeCmds(
+    argsLen: comptime_int,
+    allocator: Allocator,
+    args: *const [argsLen][]const u8,
+    incomingFileName: []const u8,
+) !ExecCmdResponse {
+    var execResponse = ExecCmdResponse{};
+    var fileName: []const u8 = undefined;
+    const outFileLog: []const u8 = "out";
+    const cleanUpFileName = if (incomingFileName.len >= 10) incomingFileName[2 .. incomingFileName.len - 3] else outFileLog;
+    printLn("Utils::executeCmds()::incomingFileName: {s}", cleanUpFileName);
+    const today = fromTimestamp(@intCast(time.timestamp()));
+    const max_len = 100;
+    var buf: [max_len]u8 = undefined;
+    var fmtFileBuf: [max_len]u8 = undefined;
+    fileName = createFileName(
+        max_len,
+        &buf,
+        try formatString(max_len, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
+            cleanUpFileName,
+            today.year,
+            today.month,
+            today.day,
+        }),
+        Types.FileExtensions.LOG,
+    ) catch |e| {
+        printLn("Utils::executeCmds()::err:{any}\n", .{@errorName(e)});
+        @panic("Utils::executeCmds()::error creating fileB=Name exiting program...\n");
+    };
+    try deleteFileIfExists(getCWD(), fileName);
+    const file = try getCWD().createFile(fileName, .{
+        .read = false,
+        .truncate = true,
+    });
+    try file.chmod(0o664); // 0o664 (rw-rw-r--) is safer than 777
+    //CRITICAL FIX: Close the file BEFORE the shell command runs.
+    file.close();
+    const argv_slice = &args.*;
+    const full_command = try std.mem.join(allocator, " ", argv_slice);
+    defer allocator.free(full_command);
+    const command_str = try std.fmt.allocPrint(allocator, "{s} > {s} 2>&1", .{ full_command, fileName });
+    defer allocator.free(command_str);
+    var child = std.process.Child.init(&[_][]const u8{ "/bin/bash", "-c", command_str }, allocator);
     try child.spawn();
-    try child.collectOutput(allocator, &stdout, &stderr, 1024);
     const term = try child.wait();
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                std.debug.print("Utils::executeCmds()::The following command exited with error code: {any}\n", .{code});
-                returnStruct.exitCode = @as(i32, @intCast(code));
-                returnStruct.message = @errorName(error.CommandFailed);
-                return returnStruct;
+                printLn("Utils::executeCmds()::The following command exited with error code: {any}", .{code});
+                execResponse.exitCode = @as(i32, @intCast(code));
+                execResponse.message = @errorName(error.CommandFailed);
+                return execResponse;
             }
         },
         .Signal => |sig| {
-            std.debug.print("Utils::executeCmds()::The following command returned signal: {any}\n", .{sig});
-            returnStruct.exitCode = @as(i32, @intCast(sig));
-            returnStruct.message = @errorName(error.Signal);
-            return returnStruct;
+            printLn("Utils::executeCmds()::The following command returned signal: {any}", .{sig});
+            execResponse.exitCode = @as(i32, @intCast(sig));
+            execResponse.message = @errorName(error.Signal);
+            return execResponse;
         },
-        else => {
-            std.debug.print("Utils::executeCmds()::The following command terminated unexpectedly with error:{s}\n", .{stderr.items});
-            returnStruct.exitCode = 1;
-            returnStruct.message = @errorName(error.CommandFailed);
-            return returnStruct;
+        .Unknown => |u| {
+            std.debug.print("Utils::executeCmds()::The following command returned signal: {any}\n", .{u});
+            execResponse.exitCode = @as(i32, @intCast(u));
+            execResponse.message = "Unknown";
+            return execResponse;
+        },
+        .Stopped => |s| {
+            printLn("Utils::executeCmds()::The following command returned signal: {any}", .{s});
+            execResponse.exitCode = @as(i32, @intCast(s));
+            execResponse.message = "Stopped";
+            return execResponse;
         },
     }
-    returnStruct.exitCode = 0;
-    returnStruct.message = @as([]const u8, stdout.items);
-    print("Utils::executeCmds()::command:: \ncode: {d} \noutput: {s}\n", .{ returnStruct.exitCode, stdout.items });
-    return returnStruct;
+    return execResponse;
 }
 
 pub fn binarySearch(comptime T: type, slice: T, element: anytype) i32 {
@@ -399,7 +477,7 @@ pub fn intToString(T: type, buf: []const u8, base: ?u8) !T {
 }
 
 // TODO: Fix this later
-pub fn getPID(allocator: std.mem.Allocator, bufLen: comptime_int, buf: *[bufLen]u8, processName: []const u8) !ExecCmdResponse {
+pub fn getPID(allocator: Allocator, bufLen: comptime_int, buf: *[bufLen]u8, processName: []const u8) !ExecCmdResponse {
     const query = try std.fmt.bufPrint(buf, "{s}", .{processName});
     print("F: {s}\n", .{query});
     const args = [_][]const u8{
@@ -411,7 +489,7 @@ pub fn getPID(allocator: std.mem.Allocator, bufLen: comptime_int, buf: *[bufLen]
     return response;
 }
 
-pub fn checkIfPortInUse(allocator: std.mem.Allocator, port: i32) !ExecCmdResponse {
+pub fn checkIfPortInUse(allocator: Allocator, port: i32) !ExecCmdResponse {
     var buf: [6]u8 = undefined;
     const formattedPort = try formatString(6, &buf, ":{d}", .{port});
     const args = [_][]const u8{
@@ -460,7 +538,7 @@ pub fn getOsType() []const u8 {
     };
 }
 
-///TODO: Figure out how to add format option to logger
+/// TODO: Figure out how to add format option to logger
 /// Currently format is breaking no idea why.
 /// Even with if (!isDigitFormat and isDigit) it still crashes even if isDigitFormat === false and isDigit is === true
 pub fn convertToString(
@@ -510,6 +588,80 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 
 pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return std.mem.endsWith(T, haystack, needle);
+}
+
+/// sleep() - Takes a duration in milliseconds
+pub fn sleep(durrationMs: u64) void {
+    const multiplier = @as(u64, @intFromFloat(1e6));
+    const duration = durrationMs * multiplier;
+    time.sleep(duration);
+}
+
+pub fn splitAndJoinStr(allocator: Allocator, string: []const u8, size: usize, delimiters: []const u8, append: ?[]const u8) ![][]const u8 {
+    var arrayList = try std.ArrayList([]const u8).initCapacity(allocator, size);
+    var itter = std.mem.splitAny(u8, string, delimiters);
+    while (itter.next()) |value| {
+        try arrayList.append(value);
+    }
+    if (append) |app| {
+        try arrayList.append(app);
+    }
+    return try arrayList.toOwnedSlice();
+}
+
+pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
+    const cwd = getCWD();
+    const fileName: []const u8 = ".env";
+    const CWD_PATH = @as([]const u8, try cwd.realpathAlloc(allocator, "../"));
+    defer allocator.free(CWD_PATH);
+    const split = try splitAndJoinStr(allocator, CWD_PATH, 1024, "/", fileName);
+    const file_path = try std.mem.join(allocator, "/", split);
+    defer allocator.free(split);
+    defer allocator.free(file_path);
+
+    fileExists(cwd, file_path) catch |e| {
+        printLn("Utils::getEnvVar()::received error {}", e);
+        if (e == Errors.FileNotFound) {
+            return try std.process.getEnvVarOwned(allocator, key);
+        }
+    };
+    const file = cwd.openFile(file_path, .{ .mode = .read_only }) catch |er| {
+        printLn("Utils::getEnvVar()::received error {}", er);
+        return er;
+    };
+    defer file.close();
+
+    const fileStat = file.stat() catch |er| {
+        printLn("Utils::getEnvVar()::received error: {}", er);
+        return er;
+    };
+    if (fileStat.size == 0) {
+        return Errors.EmptyFile;
+    }
+    var buf_reader = io.bufferedReader(file.reader());
+    var in_stream = buf_reader.reader();
+    var buf: [1024]u8 = undefined;
+    var value: []const u8 = "";
+    var bytes: []u8 = undefined;
+    while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        if (startsWith(u8, @as([]const u8, line), key)) {
+            const envValue = try splitAndJoinStr(
+                allocator,
+                @as([]const u8, line),
+                100,
+                "=",
+                undefined,
+            );
+            defer allocator.free(envValue);
+            if (envValue.len > 0) {
+                value = envValue[1];
+                bytes = try allocator.alloc(u8, value.len);
+                std.mem.copyForwards(u8, bytes, value);
+                break;
+            }
+        }
+    }
+    return bytes;
 }
 
 // pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {

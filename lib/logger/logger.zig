@@ -26,7 +26,7 @@ pub const Logger = struct {
         const today = Utils.fromTimestamp(@intCast(time.timestamp()));
         const max_len = 14;
         var buf: [max_len]u8 = undefined;
-        var fmtFileBuf: [14]u8 = undefined;
+        var fmtFileBuf: [max_len]u8 = undefined;
         logger.fileName = Utils.createFileName(
             max_len,
             &buf,
@@ -42,6 +42,9 @@ pub const Logger = struct {
         logger.logFile = createFileData.file;
         return logger;
     }
+    pub fn deinit(self: *Self) void {
+        self.closeDirAndFiles();
+    }
     pub fn info(self: *Self, message: []const u8, data: anytype) !void {
         try self.logData.info(self.logFile, message, data);
     }
@@ -55,8 +58,8 @@ pub const Logger = struct {
         try self.logData.fatal(self.logFile, message, data);
     }
     pub fn closeDirAndFiles(self: *Self) void {
-        self.logDir.close();
         self.logFile.close();
+        self.logDir.close();
     }
 };
 

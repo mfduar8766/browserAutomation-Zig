@@ -7,6 +7,7 @@ const DriverTypes = @import("./types.zig");
 const process = std.process;
 const FileManager = @import("common").FileManager;
 const FileActions = @import("common").Actions;
+const config = @import("config");
 
 const RequestUrlPaths = enum {
     NEW_SESSION,
@@ -224,9 +225,9 @@ pub const Driver = struct {
         self.allocator.free(self.sessionID);
         self.fileManager.deInit();
     }
-    ///setHeadlessMode - used to run without a browser.
+    ///setHeadlessMode - Used to run without a browser.
     ///
-    /// Call before waitForDriver() and launchWindow().
+    ///Call before waitForDriver() and launchWindow().
     pub fn setHeadlessMode(self: *Self) void {
         if (self.isDriverRunning) {
             @panic("Driver::setHeadlessMode()::cannot call this after driver is running. Exiting function...");
@@ -247,10 +248,10 @@ pub const Driver = struct {
         if (!self.isDriverRunning) {
             @panic("Driver::launchWindow()::driver is not running...");
         }
-        if (self.isDriverRunning) {
-            try self.getSessionID();
-            try self.navigateToSite(url);
-        }
+        self.handleLaunchWindow(url) catch |e| {
+            self.fileManager.logger.fatal("Driver::launchWindow()::Caught error: {}\n", @errorName(e));
+            @panic("Driver::launchWindow()::cannout open the browser");
+        };
     }
     pub fn closeWindow(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
@@ -297,7 +298,7 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const body = try Utils.stringify(
@@ -476,7 +477,7 @@ pub const Driver = struct {
             &urlBuf,
             elementID,
         );
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const body = try Utils.stringify(allocator, u8, payload, .{});
@@ -576,7 +577,7 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const windowSize = SetWindowHeightAndWidthPayload{ .height = self.height, .width = self.width };
@@ -639,7 +640,7 @@ pub const Driver = struct {
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(RequestUrlPaths.NEW_SESSION, bufLen, &urlBuf, null);
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var arrayList = std.ArrayList(u8).init(fba.allocator());
         defer arrayList.deinit();
@@ -683,7 +684,7 @@ pub const Driver = struct {
         defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
         defer req.deinit();
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var arrayList = std.ArrayList(u8).init(fba.allocator());
         defer arrayList.deinit();
@@ -702,7 +703,10 @@ pub const Driver = struct {
                 if (code.exitCode == 0) {
                     var buf: [6]u8 = undefined;
                     const intToString = try std.fmt.bufPrint(&buf, "{d}", .{code.exitCode});
-                    try self.fileManager.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port is currently in use", @as([]const u8, intToString));
+                    try self.fileManager.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port is currently in use", @as(
+                        []const u8,
+                        intToString,
+                    ));
                     @panic("Driver::checkoptins()::port is in use, exiting program...");
                 }
                 self.chromeDriverPort = port;
@@ -730,7 +734,7 @@ pub const Driver = struct {
         const args = [_][]const u8{
             "lsof", "-i", formattedPort,
         };
-        const response = try Utils.executeCmds(3, self.allocator, &args);
+        const response = try Utils.executeCmds(3, self.allocator, &args, "");
         return response;
     }
     fn getRequestUrl(
@@ -915,5 +919,17 @@ pub const Driver = struct {
             },
         }
         return findElementQuery;
+    }
+    fn handleLaunchWindow(self: *Self, url: []const u8) !void {
+        if (self.isDriverRunning) {
+            if (config.te2e) {
+                self.setHeadlessMode();
+                try self.getSessionID();
+                try self.fileManager.startE2E(url);
+            } else {
+                try self.getSessionID();
+                try self.navigateToSite(url);
+            }
+        }
     }
 };
