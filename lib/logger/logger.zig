@@ -30,13 +30,22 @@ pub const Logger = struct {
         logger.fileName = Utils.createFileName(
             max_len,
             &buf,
-            try Utils.formatString(max_len, &fmtFileBuf, "{d}_{d}_{d}", .{ today.year, today.month, today.day }),
+            try Utils.formatString(max_len, &fmtFileBuf, "{d}_{d}_{d}", .{
+                today.year,
+                today.month,
+                today.day,
+            }),
             Types.FileExtensions.LOG,
         ) catch |e| {
             print("Logger::init()::err:{any}\n", .{e});
             @panic("Logger::init()::error creating fileB=Name exiting program...\n");
         };
-        const createFileData = try Utils.createFile(Utils.getCWD(), logger.logDirPath, logger.fileName, null);
+        const createFileData = try Utils.createFile(
+            Utils.getCWD(),
+            logger.logDirPath,
+            logger.fileName,
+            null,
+        );
         logger.logData = LoggerData.init();
         logger.logDir = createFileData.dir;
         logger.logFile = createFileData.file;

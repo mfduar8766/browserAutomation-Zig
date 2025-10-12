@@ -30,6 +30,7 @@ pub const Errors = error{
     StreamTooLong,
     EnvironmentVariableNotFound,
     SegmentationFault,
+    OutOfMemory,
 };
 
 pub const MAX_BUFF_SIZE = 1024;
@@ -55,6 +56,7 @@ pub fn fromTimestamp(ts: u64) DateTime {
     const DAYS_IN_100YEARS = 36524;
     const DAYS_IN_400YEARS = 146097;
     const DAYS_BEFORE_EPOCH = 719468;
+    // const MILLISECONDS_PER_SECOND = 1000;
 
     const seconds_since_midnight: u64 = @rem(ts, SECONDS_PER_DAY);
     var day_n: u64 = DAYS_BEFORE_EPOCH + ts / SECONDS_PER_DAY;
@@ -77,7 +79,24 @@ pub fn fromTimestamp(ts: u64) DateTime {
         year += 1;
     }
 
-    return DateTime{ .year = year, .month = month, .day = day, .hour = @intCast(seconds_since_midnight / 3600), .minute = @intCast(seconds_since_midnight % 3600 / 60), .second = @intCast(seconds_since_midnight % 60) };
+    return DateTime{
+        .year = year,
+        .month = month,
+        .day = day,
+        .hour = @intCast(seconds_since_midnight / 3600),
+        .minute = @intCast(seconds_since_midnight % 3600 / 60),
+        .second = @intCast(seconds_since_midnight % 60),
+    };
+}
+
+fn getCurrentMilliseconds() u8 {
+    const time_ns: u64 = @intCast(std.time.nanoTimestamp());
+    // Get the remainder of the nanoseconds after removing full seconds.
+    // The result is the current sub-second nanoseconds (0 to 999,999,999).
+    const sub_second_ns = time_ns % std.time.ns_per_s;
+    // Convert nanoseconds to milliseconds (1,000,000 ns per ms).
+    const milliseconds = sub_second_ns / 1_000_000;
+    return @intCast(milliseconds); // Returns the value 0 to 999
 }
 
 pub fn toRFC3339(dt: DateTime) [20]u8 {
@@ -237,7 +256,10 @@ pub fn createDir(dir: []const u8) Result {
     return res;
 }
 
-pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mode: ?comptime_int) !struct { file: std.fs.File, dir: std.fs.Dir } {
+pub fn createFile(cwd: std.fs.Dir, dirName: []const u8, fileName: []const u8, mode: ?comptime_int) !struct {
+    file: std.fs.File,
+    dir: std.fs.Dir,
+} {
     var dir = try cwd.openDir(dirName, .{ .access_sub_paths = true, .iterate = true });
     comptime var modeType: comptime_int = std.fs.Dir.default_mode;
     if (mode) |m| {

@@ -221,7 +221,7 @@ pub const Driver = struct {
         try driver.fileManager.executeFiles(driver.fileManager.setShFileByOs(FileActions.startDriverDetached));
         return driver;
     }
-    pub fn deInit(self: *Self) void {
+    pub fn deinit(self: *Self) void {
         self.allocator.free(self.sessionID);
         self.fileManager.deInit();
     }
@@ -255,31 +255,29 @@ pub const Driver = struct {
     }
     pub fn closeWindow(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, null);
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(RequestUrlPaths.CLOSE_WINDOW, bufLen, &urlBuf, null);
         const res = try req.delete(urlApi, .{ .server_header_buffer = serverHeaderBuf }, 12);
+        defer self.allocator.free(res);
         self.isDriverRunning = false;
-        self.allocator.free(serverHeaderBuf);
-        self.allocator.free(res);
-        req.deinit();
+        defer req.deinit();
         try self.fileManager.executeShFiles(self.fileManager.files.deleteDriverDetachedSh);
     }
     ///deleteSession - Used to delete current session of chromeDriver and close window
     pub fn deleteSession(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, null);
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(RequestUrlPaths.DELETE_SESSION, bufLen, &urlBuf, null);
         const res = try req.delete(urlApi, .{ .server_header_buffer = serverHeaderBuf }, 14);
+        defer self.allocator.free(res);
         self.isDriverRunning = false;
-        defer {
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
         try self.fileManager.executeShFiles(self.fileManager.files.deleteDriverDetachedSh);
     }
     /// findElement - Used to find the element by selector.
@@ -289,7 +287,9 @@ pub const Driver = struct {
     /// Find by css, xpath, tagName, id.
     pub fn findElement(self: *Self, selectorType: DriverTypes.SelectorTypes, comptime selectorName: []const u8) ![]const u8 {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 125 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -307,26 +307,24 @@ pub const Driver = struct {
             createFindElementQuery(selectorType, selectorName),
             .{},
         );
+        defer allocator.free(body);
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, body, null);
+        defer self.allocator.free(res);
         const parsed = try std.json.parseFromSlice(FindElementBySelectorResponse, self.allocator, res, .{ .ignore_unknown_fields = true });
-        defer {
-            allocator.free(body);
-            parsed.deinit();
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer parsed.deinit();
         const bytes = try self.allocator.alloc(u8, parsed.value.value.@"element-6066-11e4-a52e-4f735466cecf".len);
         std.mem.copyForwards(u8, bytes, parsed.value.value.@"element-6066-11e4-a52e-4f735466cecf");
         return @as([]const u8, bytes);
     }
     pub fn click(self: *Self, elementID: []const u8) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 1500 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -340,18 +338,16 @@ pub const Driver = struct {
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, "{}", null);
-        defer {
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer self.allocator.free(res);
     }
     ///getElementByText = Used to get the elementID based on text,
     ///
     ///Caller must free the memory,
     pub fn getElementText(self: *Self, elementID: []const u8) ![]const u8 {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 1024 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -365,20 +361,18 @@ pub const Driver = struct {
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.get(urlApi, options, null);
+        defer self.allocator.free(res);
         const parsed = try std.json.parseFromSlice(GetElementTextResponse, self.allocator, res, .{ .ignore_unknown_fields = true });
-        defer {
-            parsed.deinit();
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer parsed.deinit();
         const bytes = try self.allocator.alloc(u8, parsed.value.value.len);
         std.mem.copyForwards(u8, bytes, parsed.value.value);
         return @as([]const u8, bytes);
     }
     pub fn screenShot(self: *Self, fileName: ?[]const u8) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 500000 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -392,14 +386,10 @@ pub const Driver = struct {
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.get(urlApi, options, null);
+        defer self.allocator.free(res);
         const parsed = try std.json.parseFromSlice(ScreenShotResponse, self.allocator, res, .{ .ignore_unknown_fields = true });
+        defer parsed.deinit();
         try self.fileManager.saveScreenShot(fileName, parsed.value.value);
-        defer {
-            parsed.deinit();
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
     }
     ///setWindowReact - Used to set the height and width of window.
     ///
@@ -466,9 +456,12 @@ pub const Driver = struct {
         var list = std.ArrayList([]const u8).init(self.allocator);
         try list.append(input);
         const slice = try list.toOwnedSlice();
+        defer self.allocator.free(slice);
         const payload = KeyInValuePayload{ .text = input, .value = slice };
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -481,25 +474,22 @@ pub const Driver = struct {
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const body = try Utils.stringify(allocator, u8, payload, .{});
+        defer allocator.free(body);
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, body, null);
-        defer {
-            allocator.free(body);
-            self.allocator.free(slice);
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer self.allocator.free(res);
     }
     pub fn sendEnterCmd(self: *Self) !void {
         const f =
             \\{"actions":[{"type":"key","id":"keyboard","actions":[{"type":"keyDown","value":"\uE007"}]}]}
         ;
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 2006 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -513,15 +503,13 @@ pub const Driver = struct {
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, f, null);
-        defer {
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer self.allocator.free(res);
     }
     pub fn goBack(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 1341 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -535,15 +523,13 @@ pub const Driver = struct {
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, "{}", null);
-        defer {
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer self.allocator.free(res);
     }
     pub fn goForward(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 1341 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -557,18 +543,16 @@ pub const Driver = struct {
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, "{}", null);
-        defer {
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer self.allocator.free(res);
     }
     pub fn stopDriver(self: *Self) !void {
         try self.fileManager.executeFiles(self.fileManager.setShFileByOs(FileActions.deleteDriverDetached));
     }
     fn setWindowSize(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 52 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -587,21 +571,19 @@ pub const Driver = struct {
             windowSize,
             .{},
         );
+        defer allocator.free(body);
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, body, null);
-        defer {
-            allocator.free(body);
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer self.allocator.free(res);
     }
     fn setPosition(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024);
+        defer self.allocator.free(serverHeaderBuf);
         var req = Http.init(self.allocator, .{ .maxReaderSize = 54 });
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -620,17 +602,13 @@ pub const Driver = struct {
             windowPosition,
             .{},
         );
+        defer allocator.free(body);
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
         const res = try req.post(urlApi, options, body, null);
-        defer {
-            allocator.free(body);
-            self.allocator.free(serverHeaderBuf);
-            self.allocator.free(res);
-            req.deinit();
-        }
+        defer self.allocator.free(res);
     }
     fn getSessionID(self: *Self) !void {
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, 1024 * 8);

@@ -9,5 +9,6 @@ zig-*
 **/screenShots/**
 # **/electron/**
 **/dist/**
-.env
+*.env
 **.log
+**state.json
