@@ -52,7 +52,7 @@ pub fn main() !void {
     try driver.stopDriver();
     defer {
         // allocator.free(el);
-        driver.deInit();
+        driver.deinit();
         // fileM.deInit();
         // defer chan.deInit();
         const deinit_status = gpa.deinit();

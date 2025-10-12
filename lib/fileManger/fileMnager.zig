@@ -5,6 +5,7 @@ const Logger = @import("../logger/logger.zig").Logger;
 const Types = @import("../types/types.zig");
 const Utils = @import("../utils/utils.zig");
 const Http = @import("../http/http.zig").Http;
+const State = @import("state.zig").State;
 
 pub const Actions = enum {
     ///startChromeDriver - ./startChromeDriver.sh
@@ -25,6 +26,7 @@ pub const Actions = enum {
     startE2eSh,
     ///buildAndInstallSh - ./buildAndInstall.sh
     buildAndInstallSh,
+    stateJSON,
 };
 
 const Files = struct {
@@ -66,6 +68,8 @@ const Files = struct {
     comptime electronBuildPath: []const u8 = "dist/mac/E2E.app/Contents/MacOS",
     comptime buildAndInstallSh: []const u8 = "./buildAndInstall.sh",
     comptime buildAndInstallShW: []const u8 = ".\\buildAndInstall.sh",
+    comptime stateJSON: []const u8 = "./state.json",
+    comptime stateJSON_W: []const u8 = ".\\state.json",
 };
 
 pub const FileManager = struct {
@@ -75,28 +79,88 @@ pub const FileManager = struct {
     const chromedriver: []const u8 = "chromedriver";
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
-    driverOutFile: std.fs.File = undefined,
+    driverOutFile: ?std.fs.File = null,
     files: Files = Files{},
-    screenShotsDir: std.fs.Dir = undefined,
+    screenShotsDir: ?std.fs.Dir = null,
     comptime osType: []const u8 = Utils.getOsType(),
+    stateJsonFile: ?std.fs.File = null,
+    state: ?State = null,
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         var fileManager = FileManager{
             .arena = std.heap.ArenaAllocator.init(allocator),
         };
         fileManager.logger = Logger.init(fileManager.files.loggerFileDir) catch |e| {
-            std.debug.print("FileManager::init()::received error: {s}\n", .{@errorName(e)});
-            fileManager.arena.deinit();
+            try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(e));
             @panic("FileManager::init()::failed to init fileManager, exiting program...");
+        };
+        fileManager.setUp() catch |er| {
+            try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(er));
+            defer fileManager.deinit();
+            @panic("FileManager::inint()::failed to initialize state");
         };
         return fileManager;
     }
-    pub fn deInit(self: *Self) void {
-        self.arena.deinit();
-        // self.driverOutFile.close();
-        // self.screenShotsDir.close();
+    fn setUp(self: *Self) !void {
+        const cwd = Utils.getCWD();
+        self.state = State.init(self.arena.allocator()) catch |err| {
+            try self.log(Types.LogLevels.ERROR, "FileManager::setUp::()::received error", @errorName(err));
+            defer self.deinit();
+            return err;
+        };
+        Utils.fileExists(cwd, self.setShFileByOs(Actions.stateJSON)) catch |e| {
+            if (e == Utils.Errors.FileNotFound) {
+                self.stateJsonFile = try cwd.createFile(self.setShFileByOs(Actions.stateJSON), .{});
+                try self.stateJsonFile.?.chmod(0o664);
+                const json = try Utils.stringify(self.getAllocator(), u8, self.state.?.state, .{
+                    .emit_null_optional_fields = true,
+                });
+                defer self.getAllocator().free(json);
+                self.stateJsonFile.?.writeAll(json) catch |errr| {
+                    return errr;
+                };
+            } else {
+                defer self.deinit();
+                return e;
+            }
+        };
+        self.stateJsonFile = cwd.openFile(self.setShFileByOs(Actions.stateJSON), .{
+            .mode = .read_write,
+            .truncate = true,
+        }) catch |err| {
+            defer self.deinit();
+            return err;
+        };
+        try self.stateJsonFile.?.chmod(0o664);
+        const fileStat = self.stateJsonFile.?.stat() catch |er| {
+            defer self.deinit();
+            return er;
+        };
+        if (fileStat.size == 0) {
+            const json = try Utils.stringify(self.getAllocator(), u8, self.state.?.state, .{
+                .emit_null_optional_fields = true,
+            });
+            defer self.getAllocator().free(json);
+            self.stateJsonFile.?.writeAll(json) catch |errr| {
+                return errr;
+            };
+        }
+    }
+    pub fn deinit(self: *Self) void {
+        if (self.driverOutFile != null) {
+            self.driverOutFile.?.close();
+        }
+        if (self.screenShotsDir != null) {
+            self.screenShotsDir.?.close();
+        }
+        if (self.stateJsonFile != null) {
+            self.stateJsonFile.?.close();
+        }
         self.logger.deinit();
-        // self.logger.closeDirAndFiles();
+        if (self.state != null) {
+            self.state.?.deinit();
+        }
+        self.arena.deinit();
     }
     pub fn log(self: *Self, logType: Types.LogLevels, message: []const u8, data: anytype) !void {
         switch (logType) {
@@ -235,66 +299,53 @@ pub const FileManager = struct {
         defer self.getAllocator().free(CWD_PATH);
         try self.log(Types.LogLevels.INFO, "FileManger::startE2E()::file path", .{CWD_PATH});
 
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.buildAndInstallSh));
-
-        try self.log(Types.LogLevels.INFO, "URL", .{url});
         self.buildAndInstall(cwd, CWD_PATH) catch |e| {
             try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::received error:", .{e});
             @panic(@errorName(e));
         };
-
-        // var deleteE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.deleteE2eDetached), .{});
-        // try deleteE2eDetached.chmod(777);
-        // const deleteSession = try createDeleteDetachedShFileData(E2eSession, self.files.e2eRunner);
-        // deleteE2eDetached.writeAll(deleteSession) catch |err| {
-        //     Utils.printLn("FileManager::startE2E()::received error", .{err});
-        //     @panic(@errorName(err));
-        // };
-        // var startE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.startE2eDetached), .{});
-        // try startE2eDetached.chmod(777);
-        // const startE2eDetachedFileData = try createStartDetachedShFileData(E2eSession, self.files.e2eRunner, self.setShFileByOs(
-        //     Actions.startE2eSh,
-        // ));
-        // startE2eDetached.writeAll(startE2eDetachedFileData) catch |e| {
-        //     try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::Caught error", .{e});
-        //     @panic(@errorName(e));
-        // };
-        // // const startE2eShBody: []const u8 =
-        // //     \\#!/bin/bash
-        // //     \\echo "starting E2E...\n"
-        // //     \\cd "{s}/dist/mac/E2E.app/Contents/MacOS/"
-        // //     \\./E2E --url={s} &
-        // // ;
-        // const startE2eShBody: []const u8 =
-        //     \\#!/bin/bash
-        //     \\echo "starting E2E...\n"
-        //     \\cd "{s}/{s}/"
-        //     \\exec -a {s} ./E2E --url={s} &
-        //     \\
-        // ;
-        // var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
-        // const formattedE2eFileData = try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf, startE2eShBody, .{
-        //     self.files.electronFolder,
-        //     self.files.electronBuildPath,
-        //     self.files.e2eRunner,
-        //     url,
-        // });
-        // var e2eFile = try cwd.createFile(self.setShFileByOs(Actions.startE2eSh), .{});
-        // try e2eFile.chmod(777);
-        // e2eFile.writeAll(formattedE2eFileData) catch |er| {
-        //     @panic(@errorName(er));
-        // };
-        // try self.executeFiles(self.setShFileByOs(Actions.startE2eDetached));
-        // // std.debug.print("Sleeping for 60 seconds...\n", .{});
-        // // Utils.sleep(60000);
-        // // std.debug.print("Calling stop E2E...\n", .{});
-        // // try self.executeFiles(self.setShFileByOs(Actions.deleteE2eDetached));
-        // defer e2eFile.close();
-        // defer deleteE2eDetached.close();
-        // defer startE2eDetached.close();
+        var deleteE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.deleteE2eDetached), .{});
+        defer deleteE2eDetached.close();
+        try deleteE2eDetached.chmod(777);
+        const deleteSession = try createDeleteDetachedShFileData(E2eSession, self.files.e2eRunner);
+        deleteE2eDetached.writeAll(deleteSession) catch |err| {
+            Utils.printLn("FileManager::startE2E()::received error", .{err});
+            @panic(@errorName(err));
+        };
+        var startE2eDetached = try cwd.createFile(self.setShFileByOs(Actions.startE2eDetached), .{});
+        defer startE2eDetached.close();
+        try startE2eDetached.chmod(777);
+        const startE2eDetachedFileData = try createStartDetachedShFileData(E2eSession, self.files.e2eRunner, self.setShFileByOs(
+            Actions.startE2eSh,
+        ));
+        startE2eDetached.writeAll(startE2eDetachedFileData) catch |e| {
+            try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::Caught error", .{e});
+            @panic(@errorName(e));
+        };
+        const startE2eShBody: []const u8 =
+            \\#!/bin/bash
+            \\echo "starting E2E...\n"
+            \\cd "{s}/{s}/"
+            \\exec -a {s} ./E2E --url={s} &
+            \\
+        ;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        const formattedE2eFileData = try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf, startE2eShBody, .{
+            self.files.electronFolder,
+            self.files.electronBuildPath,
+            self.files.e2eRunner,
+            url,
+        });
+        var e2eFile = try cwd.createFile(self.setShFileByOs(Actions.startE2eSh), .{});
+        defer e2eFile.close();
+        try e2eFile.chmod(777);
+        e2eFile.writeAll(formattedE2eFileData) catch |er| {
+            @panic(@errorName(er));
+        };
+        try self.executeFiles(self.setShFileByOs(Actions.startE2eDetached));
     }
     pub fn stopE2E(self: *Self) !void {
         try self.logger.info("Calling stop E2E...", null);
@@ -355,6 +406,12 @@ pub const FileManager = struct {
                     return self.files.buildAndInstallShW;
                 }
                 return self.files.buildAndInstallSh;
+            },
+            Actions.stateJSON => {
+                if (self.isWindows()) {
+                    return self.files.stateJSON_W;
+                }
+                return self.files.stateJSON;
             },
         };
     }
@@ -497,7 +554,11 @@ pub const FileManager = struct {
         if (exeFileName.len == 0) {
             @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
         }
-        const chromeDriverFolderPath = try std.mem.join(self.getAllocator(), "/", chromeDriverPathArray.items);
+        const chromeDriverFolderPath = try std.mem.join(
+            self.getAllocator(),
+            "/",
+            chromeDriverPathArray.items,
+        );
         defer self.getAllocator().free(chromeDriverFolderPath);
         var buf4: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         const fileContents =
