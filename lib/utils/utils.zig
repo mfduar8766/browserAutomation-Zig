@@ -180,7 +180,7 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     var exists = false;
     while (itter.next()) |entry| {
         if (entry) |e| {
-            if (e.kind == fs.File.Kind.file and std.mem.eql(u8, e.name, fileName)) {
+            if (e.kind == fs.File.Kind.file and eql(u8, e.name, fileName)) {
                 exists = true;
                 break;
             }
@@ -399,7 +399,7 @@ pub fn executeCmds(
     //CRITICAL FIX: Close the file BEFORE the shell command runs.
     file.close();
     const argv_slice = &args.*;
-    const full_command = try std.mem.join(allocator, " ", argv_slice);
+    const full_command = try join(allocator, " ", argv_slice);
     defer allocator.free(full_command);
     const command_str = try std.fmt.allocPrint(allocator, "{s} > {s} 2>&1", .{ full_command, fileName });
     defer allocator.free(command_str);
@@ -604,6 +604,7 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool
     return std.mem.startsWith(T, haystack, needle);
 }
 
+///Returns true if and only if the slices have the same length and all elements compare true using equality operator.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return std.mem.eql(T, a, b);
 }
@@ -619,8 +620,19 @@ pub fn sleep(durrationMs: u64) void {
     time.sleep(duration);
 }
 
-pub fn splitAndJoinStr(allocator: Allocator, string: []const u8, size: usize, delimiters: []const u8, append: ?[]const u8) ![][]const u8 {
-    var arrayList = try std.ArrayList([]const u8).initCapacity(allocator, size);
+pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) Allocator.Error![]u8 {
+    return try std.mem.join(allocator, separator, slices);
+}
+
+///Splits the string at a delimiter and appends to the end of the string if append value is passed in
+pub fn splitAndJoinStr(
+    allocator: Allocator,
+    string: []const u8,
+    allocatorSize: usize,
+    delimiters: []const u8,
+    append: ?[]const u8,
+) ![][]const u8 {
+    var arrayList = try std.ArrayList([]const u8).initCapacity(allocator, allocatorSize);
     var itter = std.mem.splitAny(u8, string, delimiters);
     while (itter.next()) |value| {
         try arrayList.append(value);
@@ -636,8 +648,8 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
     const fileName: []const u8 = ".env";
     const CWD_PATH = @as([]const u8, try cwd.realpathAlloc(allocator, "../"));
     defer allocator.free(CWD_PATH);
-    const split = try splitAndJoinStr(allocator, CWD_PATH, 1024, "/", fileName);
-    const file_path = try std.mem.join(allocator, "/", split);
+    const split = try splitAndJoinStr(allocator, CWD_PATH, MAX_BUFF_SIZE, "/", fileName);
+    const file_path = try join(allocator, "/", split);
     defer allocator.free(split);
     defer allocator.free(file_path);
 
@@ -684,6 +696,38 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
         }
     }
     return bytes;
+}
+
+pub fn readAndParseFile(
+    T: type,
+    allocator: Allocator,
+    cwd: fs.Dir,
+    fileName: []const u8,
+) !std.json.Parsed(T) {
+    const file = try cwd.openFile(fileName, .{ .mode = .read_only });
+    defer file.close();
+    const file_stat = try file.stat();
+    const file_size = @as(usize, @intCast(file_stat.size));
+    const fileAllocBuff = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(fileAllocBuff);
+    const bytes_read = try file.readAll(fileAllocBuff);
+    if (bytes_read != file_size) {
+        return error.IncompleteFileRead;
+    }
+    defer allocator.free(fileAllocBuff);
+    return try parseJSON(T, allocator, fileAllocBuff, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    });
+}
+
+pub fn isNull(T: type) bool {
+    const typeInfo = @typeInfo(T);
+    if (typeInfo == .null) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 // pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {

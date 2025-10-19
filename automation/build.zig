@@ -17,9 +17,9 @@ pub fn build(b: *std.Build) void {
         .preferred_optimize_mode = .ReleaseSafe,
     });
 
-    const e2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
+    const te2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
     const options = b.addOptions();
-    options.addOption(bool, "e2e", e2e);
+    options.addOption(bool, "te2e", te2e);
 
     const lib = b.addStaticLibrary(.{
         .name = "automation",

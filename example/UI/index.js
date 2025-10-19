@@ -1,8 +1,10 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+process.title = 'example-ui-app';
+import http from 'http';
+import fs from 'fs';
+import path from 'node:path';
 
 const server = http.createServer((req, res) => {
+  const __dirname = path.dirname(new URL(import.meta.url).pathname);
   const filePath = path.join(__dirname, 'index.html');
   fs.readFile(filePath, (err, content) => {
     if (err) {

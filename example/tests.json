@@ -1,0 +1,12 @@
+{
+  "suites": [
+    {
+      "name": "Sample1",
+      "path": "tests/TestOne/**.feature"
+    },
+    {
+      "name": "Sample2",
+      "path": "tests/TestTwo/**.feature"
+    }
+  ]
+}
