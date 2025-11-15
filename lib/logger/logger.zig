@@ -101,26 +101,24 @@ const LoggerData = struct {
             Types.LogLevels.ERROR => self.level = Types.LogLevels.get(2),
             Types.LogLevels.FATAL => self.level = Types.LogLevels.get(3),
         }
-        var buf: [20]u8 = undefined;
+        var buf: [29]u8 = undefined;
         const timeStamp = Utils.fromTimestamp(@intCast(time.timestamp()));
-        const formattedTime = try std.fmt.bufPrint(&buf, "{s}", .{Utils.toRFC3339(timeStamp)});
+        const formattedTime = try Utils.toRFC3339(29, &buf, timeStamp); //try std.fmt.bufPrint(&buf, "{s}", .{try Utils.toRFC3339(timeStamp)});
         self.time = formattedTime;
         try self.createJson(file, message, data);
     }
     fn createJson(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
         const bufLen = 32;
         var intBuf: [bufLen]u8 = undefined;
-        var bufArrayList: [1024]u8 = undefined;
+        var bufArrayList: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fbaArrayList = std.heap.FixedBufferAllocator.init(&bufArrayList);
-        var arrayList = try std.ArrayList(u8).initCapacity(fbaArrayList.allocator(), 1024);
         // var messageBuf: [1024]u8 = undefined;
-        defer arrayList.deinit();
         const T = @TypeOf(data);
         const formattedData = try Utils.convertToString(
+            fbaArrayList.allocator(),
             bufLen,
             &intBuf,
             // &messageBuf,
-            &arrayList,
             T,
             data,
             message,
@@ -131,22 +129,41 @@ const LoggerData = struct {
             }
         }
         self.message = formattedData.message;
-        var buf: [1024]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
-        var string = try std.ArrayList(u8).initCapacity(fba.allocator(), buf.len);
-        try std.json.stringify(self.*, .{ .emit_null_optional_fields = false }, string.writer());
-        try writeToFile(file, string.items);
+        var out = std.io.Writer.Allocating.init(fba.allocator());
+        const writter = &out.writer;
+        defer out.deinit();
+        try std.json.Stringify.value(
+            self.*,
+            .{ .emit_null_optional_fields = false },
+            writter,
+        );
+        try writeToFile(file, out.written());
     }
     fn writeToFile(file: fs.File, bytes: []const u8) !void {
-        var bufWriter = std.io.bufferedWriter(file.writer());
-        const writer = bufWriter.writer();
+        var buff: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        var stdout_writer_wrapper = std.fs.File.stdout().writer(&buff);
+        const stdout: *std.io.Writer = &stdout_writer_wrapper.interface;
         _ = try file.seekFromEnd(0);
-        _ = try writer.print("{s}\n", .{bytes});
-        try bufWriter.flush();
-        const stdout_file = std.io.getStdOut().writer();
-        var bw = std.io.bufferedWriter(stdout_file);
-        const stdout = bw.writer();
-        try stdout.print("{s}\n", .{bytes});
-        try bw.flush(); // don't forget to flush!
+        _ = try stdout.print("{s}\n", .{bytes});
+        try stdout.flush();
+
+        // const buffWritter = std.fs.File.stdout().writer(&buff);
+        // const writter = &buffWritter.interface;
+        // _ = try file.seekFromEnd(0);
+        // _ = try writter.print("{s}\n", .{bytes});
+        // try buffWritter.flush();
+
+        // var bufWriter = std.io.bufferedWriter(file.writer());
+        // const writer = bufWriter.writer();
+        // _ = try file.seekFromEnd(0);
+        // _ = try writer.print("{s}\n", .{bytes});
+        // try bufWriter.flush();
+        // const stdout_file = std.io.getStdOut().writer();
+        // var bw = std.io.bufferedWriter(stdout_file);
+        // const stdout = bw.writer();
+        // try stdout.print("{s}\n", .{bytes});
+        // try bw.flush();
     }
 };

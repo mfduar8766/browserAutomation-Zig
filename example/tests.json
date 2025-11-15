@@ -7,6 +7,10 @@
     {
       "name": "Sample2",
       "path": "tests/TestTwo/**.feature"
+    },
+    {
+      "name": "Sample3",
+      "path": "tests/TestThree/**.feature"
     }
   ]
 }

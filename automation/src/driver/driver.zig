@@ -313,7 +313,6 @@ pub const Driver = struct {
         const allocator = fba.allocator();
         const body = try Utils.stringify(
             allocator,
-            u8,
             createFindElementQuery(selectorType, selectorName),
             .{},
         );
@@ -471,9 +470,9 @@ pub const Driver = struct {
     ///
     /// Only supports keyin for text
     pub fn keyInValue(self: *Self, elementID: []const u8, input: []const u8) !void {
-        var list = std.ArrayList([]const u8).init(self.allocator);
-        try list.append(input);
-        const slice = try list.toOwnedSlice();
+        var list = std.ArrayList([]const u8).empty;
+        try list.append(self.allocator, input);
+        const slice = try list.toOwnedSlice(self.allocator);
         defer self.allocator.free(slice);
         const payload = KeyInValuePayload{ .text = input, .value = slice };
         const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
@@ -491,7 +490,7 @@ pub const Driver = struct {
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
-        const body = try Utils.stringify(allocator, u8, payload, .{});
+        const body = try Utils.stringify(allocator, payload, .{});
         defer allocator.free(body);
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
@@ -585,7 +584,6 @@ pub const Driver = struct {
         const windowSize = SetWindowHeightAndWidthPayload{ .height = self.height, .width = self.width };
         const body = try Utils.stringify(
             allocator,
-            u8,
             windowSize,
             .{},
         );
@@ -616,7 +614,6 @@ pub const Driver = struct {
         const windowPosition = WindowPositionPayload{ .x = self.windowPositionX, .y = self.windowPositionY };
         const body = try Utils.stringify(
             allocator,
-            u8,
             windowPosition,
             .{},
         );
@@ -643,24 +640,24 @@ pub const Driver = struct {
         );
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
-        var arrayList = std.ArrayList(u8).init(fba.allocator());
-        defer arrayList.deinit();
-
         var chromeDriverCapabilities = Types.ChromeCapabilities{};
         if (self.isHeadlessMode) {
             const array = [3][]const u8{ "--headless", "--disable-gpu", "--disable-extensions" };
             chromeDriverCapabilities.capabilities.alwaysMatch.@"goog:chromeOptions".args = array;
         }
-        try std.json.stringify(
+        var out = std.io.Writer.Allocating.init(fba.allocator());
+        const writter = &out.writer;
+        defer out.deinit();
+        try std.json.Stringify.value(
             chromeDriverCapabilities,
             .{ .emit_null_optional_fields = false },
-            arrayList.writer(),
+            writter,
         );
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
-        const body = try req.post(urlApi, options, arrayList.items, 2081);
+        const body = try req.post(urlApi, options, out.written(), 2081);
         const parsed = try std.json.parseFromSlice(ChromeDriverSessionResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
         });
@@ -698,18 +695,19 @@ pub const Driver = struct {
         defer req.deinit();
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
-        var arrayList = std.ArrayList(u8).init(fba.allocator());
-        defer arrayList.deinit();
-        try std.json.stringify(
+        var out = std.io.Writer.Allocating.init(fba.allocator());
+        const writter = &out.writer;
+        defer out.deinit();
+        try std.json.Stringify.value(
             ChromeDriverNavigateRequestPayload{ .url = url },
             .{},
-            arrayList.writer(),
+            writter,
         );
         const options = std.http.Client.RequestOptions{
             .server_header_buffer = serverHeaderBuf,
             .headers = .{ .content_type = .{ .override = "application/json" } },
         };
-        const body = try req.post(urlApi, options, arrayList.items, null);
+        const body = try req.post(urlApi, options, out.written(), null);
         defer self.allocator.free(body);
     }
     fn checkOptions(self: *Self, options: ?Types.ChromeDriverConfigOptions) !void {

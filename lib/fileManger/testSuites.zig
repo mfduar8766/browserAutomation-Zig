@@ -2,6 +2,7 @@ const std = @import("std");
 const Utils = @import("../utils/utils.zig");
 const time = std.time;
 const AutoHashMap = std.hash_map.AutoHashMap;
+const StringHasMap = std.StringHashMap;
 
 //allocator.alloc(T, count): Allocates a raw, uninitialized block of memory on the heap large enough to hold count items of type T.
 //You must then manually initialize every element.
@@ -23,7 +24,6 @@ pub const TestSuites = struct {
     const stateFileName: []const u8 = "state.json";
     allocator: std.mem.Allocator,
     state: *AppState = undefined,
-    // fileMap: AutoHashMap([]const u8, AutoHashMap([]const u8, []const u8)) = undefined,
     lock: std.Thread.Mutex = std.Thread.Mutex{},
 
     pub fn init(allocator: std.mem.Allocator) !Self {
@@ -41,7 +41,6 @@ pub const TestSuites = struct {
     }
     pub fn deinit(self: *Self) void {
         self.allocator.destroy(self.state);
-        // self.fileMap.deinit();
     }
     fn handleInit(self: *Self, cwd: std.fs.Dir) !void {
         Utils.dirExists(cwd, testFolderName) catch |e| {
@@ -68,7 +67,6 @@ pub const TestSuites = struct {
             .suites = dupe_suites, // Assign the duplicated slice
         };
         self.state = copyPtr;
-        // self.fileMap = AutoHashMap([]const u8, AutoHashMap([]const u8, []const u8).init(self.allocator)).init(self.allocator);
         self.populateTestSuites(cwd, testFolderName) catch |errr| {
             @panic(@errorName(errr));
         };
@@ -89,43 +87,41 @@ pub const TestSuites = struct {
                 break;
             }
             const entry = optional_entry.?;
-            if (entry.kind == std.fs.File.Kind.file and !Utils.isNull(@TypeOf(self.state.suites[index]))) {
+            if (entry.kind == std.fs.File.Kind.file) {
                 self.lock.lock();
-                std.debug.print("NAME: {s} FILE-NAME-STATE: {s}\n", .{ entry.name, self.state.suites[index].path });
-                const folder = self.state.suites[index].path[6 .. self.state.suites[index].path.len - 11];
-                std.debug.print("FOLDER-NAME: {s}\n", .{folder});
-                // const suiteFilePath = self.state.suites[index].path[0 .. self.state.suites[index].path.len - 8];
+                std.debug.print("dirname: {s} entryName: {s} statePathIndex: {s}\n", .{
+                    dirName,
+                    entry.name,
+                    self.state.suites[index].path,
+                });
+                // const folder = self.state.suites[index].path[6 .. self.state.suites[index].path.len - 11];
+                // std.debug.print("FOLDER-NAME: {s}\n", .{folder});
+                // const suiteFilePath = self.state.suites[index].path[0 .. self.state.suites[index].path.len - 11];
                 // std.debug.print("LAST-8-CHARS: {s}\n", .{suiteFilePath});
                 // const removeSpecialChars = try Utils.splitAndJoinStr(
                 //     self.allocator,
                 //     suiteFilePath,
-                //     Utils.MAX_BUFF_SIZE,
                 //     "/",
                 //     entry.name,
                 // );
                 // defer self.allocator.free(removeSpecialChars);
                 // const file_path = try std.mem.join(self.allocator, "/", removeSpecialChars);
                 // defer self.allocator.free(file_path);
+                // std.debug.print("FilePath: {s}\n", .{file_path});
+                // if (self.outerFileMap.getKey(folder) == null) {
+                //     std.debug.print("OUT-MAP-NO-FOLDER: {s} entry.name: {s} filePath: {s}\n", .{ folder, entry.name, file_path });
+                //     try self.innerFileMap.put(entry.name, file_path);
+                //     try self.outerFileMap.put(folder, self.innerFileMap.get(entry.name).?);
+                // } else {
+                //     if (self.innerFileMap.get(entry.name) == null) {
+                //         try self.innerFileMap.put(entry.name, file_path);
+                //     }
+                // }
                 // std.debug.print("FILE-PATH: {s}\n", .{file_path});
                 // self.state.suites[index].path = file_path;
                 // std.debug.print("STATE-SAVED-PATH: {s}\n", .{self.state.suites[index].path});
+                // std.debug.print("MAPPPPPPPPP: {s}\n", .{self.outerFileMap.get("TestOne").?});
                 self.lock.unlock();
-                //     const file = try dir.openFile(entry.name, .{ .mode = .read_only });
-                //     defer file.close();
-                //     const stat = try file.stat();
-                //     const fileSize = @as(usize, @intCast(stat.size));
-                //     const fileAllocBuff = try self.allocator.alloc(u8, fileSize);
-                //     errdefer self.allocator.free(fileAllocBuff);
-                //     const bytes_read = try file.readAll(fileAllocBuff);
-                //     if (bytes_read != fileSize) {
-                //         return error.IncompleteFileRead;
-                //     }
-                //     defer self.allocator.free(fileAllocBuff);
-                //     const parsed = try Utils.parseJSON(SuitesContainer, self.allocator, fileAllocBuff, .{
-                //         .ignore_unknown_fields = true,
-                //         .allocate = .alloc_always,
-                //     });
-                //     defer parsed.deinit();
             }
             std.debug.print("EntryName: {s} Type:{any} I: {d}\n", .{ entry.name, entry.kind, index });
             if (entry.kind == std.fs.File.Kind.directory) {

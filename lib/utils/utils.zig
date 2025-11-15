@@ -47,6 +47,7 @@ pub const DateTime = struct {
     hour: u8,
     minute: u8,
     second: u8,
+    millisecond: u16,
 };
 
 pub fn fromTimestamp(ts: u64) DateTime {
@@ -56,7 +57,11 @@ pub fn fromTimestamp(ts: u64) DateTime {
     const DAYS_IN_100YEARS = 36524;
     const DAYS_IN_400YEARS = 146097;
     const DAYS_BEFORE_EPOCH = 719468;
-    // const MILLISECONDS_PER_SECOND = 1000;
+    const MILLISECONDS_PER_SECOND: u64 = 1000;
+
+    // --- Millisecond Calculation (Step 1) ---
+    // The remainder of the total timestamp divided by 1000 is the millisecond part.
+    const millisecond: u16 = @intCast(@rem(ts, MILLISECONDS_PER_SECOND));
 
     const seconds_since_midnight: u64 = @rem(ts, SECONDS_PER_DAY);
     var day_n: u64 = DAYS_BEFORE_EPOCH + ts / SECONDS_PER_DAY;
@@ -86,36 +91,20 @@ pub fn fromTimestamp(ts: u64) DateTime {
         .hour = @intCast(seconds_since_midnight / 3600),
         .minute = @intCast(seconds_since_midnight % 3600 / 60),
         .second = @intCast(seconds_since_midnight % 60),
+        .millisecond = millisecond,
     };
 }
 
-fn getCurrentMilliseconds() u8 {
-    const time_ns: u64 = @intCast(std.time.nanoTimestamp());
-    // Get the remainder of the nanoseconds after removing full seconds.
-    // The result is the current sub-second nanoseconds (0 to 999,999,999).
-    const sub_second_ns = time_ns % std.time.ns_per_s;
-    // Convert nanoseconds to milliseconds (1,000,000 ns per ms).
-    const milliseconds = sub_second_ns / 1_000_000;
-    return @intCast(milliseconds); // Returns the value 0 to 999
-}
-
-pub fn toRFC3339(dt: DateTime) [20]u8 {
-    var buf: [20]u8 = undefined;
-    _ = std.fmt.formatIntBuf(buf[0..4], dt.year, 10, .lower, .{ .width = 4, .fill = '0' });
-    buf[4] = '-';
-    paddingTwoDigits(buf[5..7], dt.month);
-    buf[7] = '-';
-    paddingTwoDigits(buf[8..10], dt.day);
-    buf[10] = 'T';
-
-    paddingTwoDigits(buf[11..13], dt.hour);
-    buf[13] = ':';
-    paddingTwoDigits(buf[14..16], dt.minute);
-    buf[16] = ':';
-    paddingTwoDigits(buf[17..19], dt.second);
-    buf[19] = 'Z';
-
-    return buf;
+pub fn toRFC3339(bufLen: comptime_int, buf: *[bufLen]u8, dt: DateTime) ![]const u8 {
+    return try formatString(bufLen, buf, comptime "{d}-{d}-{d}T{d}:{d}:{d}:{d}Z", .{
+        dt.year,
+        dt.month,
+        dt.day,
+        dt.hour,
+        dt.minute,
+        dt.second,
+        dt.millisecond,
+    });
 }
 
 fn paddingTwoDigits(buf: *[2]u8, value: u8) void {
@@ -318,11 +307,13 @@ pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, optio
     return try std.json.parseFromSlice(T, allocator, body, options);
 }
 
-pub fn stringify(allocator: Allocator, comptime T: type, value: anytype, options: std.json.StringifyOptions) ![]u8 {
-    var arrayList = std.ArrayList(T).init(allocator);
-    try std.json.stringify(value, options, arrayList.writer());
-    const bytes = try allocator.alloc(u8, arrayList.items.len);
-    std.mem.copyForwards(u8, bytes, arrayList.items);
+pub fn stringify(allocator: Allocator, value: anytype, options: std.json.Stringify.Options) ![]u8 {
+    var out = std.io.Writer.Allocating.init(allocator);
+    const writter = &out.writer;
+    defer out.deinit();
+    try std.json.Stringify.value(value, options, writter);
+    const bytes = try allocator.alloc(u8, out.written().len);
+    std.mem.copyForwards(u8, bytes, out.written());
     return bytes;
 }
 
@@ -478,7 +469,7 @@ pub fn formatString(bufLen: comptime_int, buf: *[bufLen]u8, comptime fmt: []cons
     return @as([]const u8, try std.fmt.bufPrint(buf, fmt, args));
 }
 
-pub fn stringFmt(buf: *[1024]u8, args: anytype) ![]const u8 {
+pub fn stringFmt(buf: *[MAX_BUFF_SIZE]u8, args: anytype) ![]const u8 {
     return @as([]const u8, try std.fmt.bufPrint(buf, "{s}", args));
 }
 
@@ -542,18 +533,16 @@ pub fn deleteFileIfExists(cwd: std.fs.Dir, fileName: []const u8) !void {
 pub fn getOsType() []const u8 {
     return switch (comptime builtIn.os.tag) {
         .macos => {
-            const archType = builtIn.cpu.arch.genericName();
-            if (startsWith(u8, archType, "x")) {
+            if (builtIn.cpu.arch.isX86()) {
                 return Types.PlatForms.getOS(2);
             }
             return Types.PlatForms.getOS(1);
         },
         .windows => {
-            const archType = builtIn.target.os.tag.archName(builtIn.cpu.arch);
-            if (startsWith(u8, archType, "32")) {
-                return Types.PlatForms.getOS(3);
+            if (builtIn.cpu.arch.isX86()) {
+                return Types.PlatForms.getOS(4);
             }
-            return Types.PlatForms.getOS(4);
+            return Types.PlatForms.getOS(3);
         },
         .linux => Types.PlatForms.getOS(0),
         else => "",
@@ -564,10 +553,10 @@ pub fn getOsType() []const u8 {
 /// Currently format is breaking no idea why.
 /// Even with if (!isDigitFormat and isDigit) it still crashes even if isDigitFormat === false and isDigit is === true
 pub fn convertToString(
+    allocator: Allocator,
     intBufLen: comptime_int,
     intBuf: *[intBufLen]u8,
     // messageBuf: *[1024]u8,
-    arrayList: *std.ArrayList(u8),
     T: type,
     data: anytype,
     message: []const u8,
@@ -587,8 +576,15 @@ pub fn convertToString(
         if (isDigit and !isDigitFormat) {
             return .{ .data = try formatString(intBufLen, intBuf, "{d}", .{@as(T, data)}), .message = message };
         } else if (typeInfo == .@"struct") {
-            try std.json.stringify(@as(T, data), .{ .emit_null_optional_fields = false }, arrayList.writer());
-            return .{ .data = @as([]const u8, arrayList.items), .message = message };
+            var out = std.io.Writer.Allocating.init(allocator);
+            const writter = &out.writer;
+            defer out.deinit();
+            try std.json.Stringify.value(
+                @as(T, data),
+                .{ .emit_null_optional_fields = false },
+                writter,
+            );
+            return .{ .data = @as([]const u8, out.written()), .message = message };
         } else if (typeInfo == .pointer) {
             const isConst = typeInfo.pointer.is_const;
             const child = typeInfo.pointer.child;
@@ -628,19 +624,18 @@ pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const
 pub fn splitAndJoinStr(
     allocator: Allocator,
     string: []const u8,
-    allocatorSize: usize,
     delimiters: []const u8,
     append: ?[]const u8,
 ) ![][]const u8 {
-    var arrayList = try std.ArrayList([]const u8).initCapacity(allocator, allocatorSize);
+    var arrayList = std.ArrayList([]const u8).empty;
     var itter = std.mem.splitAny(u8, string, delimiters);
     while (itter.next()) |value| {
-        try arrayList.append(value);
+        try arrayList.append(allocator, value);
     }
     if (append) |app| {
-        try arrayList.append(app);
+        try arrayList.append(allocator, app);
     }
-    return try arrayList.toOwnedSlice();
+    return try arrayList.toOwnedSlice(allocator);
 }
 
 pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
@@ -648,7 +643,7 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
     const fileName: []const u8 = ".env";
     const CWD_PATH = @as([]const u8, try cwd.realpathAlloc(allocator, "../"));
     defer allocator.free(CWD_PATH);
-    const split = try splitAndJoinStr(allocator, CWD_PATH, MAX_BUFF_SIZE, "/", fileName);
+    const split = try splitAndJoinStr(allocator, CWD_PATH, "/", fileName);
     const file_path = try join(allocator, "/", split);
     defer allocator.free(split);
     defer allocator.free(file_path);
@@ -682,7 +677,6 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
             const envValue = try splitAndJoinStr(
                 allocator,
                 @as([]const u8, line),
-                100,
                 "=",
                 undefined,
             );
@@ -721,9 +715,9 @@ pub fn readAndParseFile(
     });
 }
 
-pub fn isNull(T: type) bool {
+pub fn isNullOrUndefined(T: type) bool {
     const typeInfo = @typeInfo(T);
-    if (typeInfo == .null) {
+    if (typeInfo == .null or typeInfo == .undefined) {
         return true;
     } else {
         return false;

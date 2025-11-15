@@ -105,6 +105,7 @@ pub const FileManager = struct {
             @panic("FileManager::init()::failed to init fileManager, exiting program...");
         };
         if (fileManager.isE2eRunning) {
+            try fileManager.logger.info("FileManager::init()::running E2E suit", null);
             fileManager.setUp() catch |er| {
                 try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(er));
                 defer fileManager.deinit();
@@ -131,7 +132,7 @@ pub const FileManager = struct {
                 // try self.handleFileCreation();
                 self.stateJsonFile = try cwd.createFile(self.setShFileByOs(Actions.stateJSON), .{});
                 try self.stateJsonFile.?.chmod(0o664);
-                const json = try Utils.stringify(self.getAllocator(), u8, self.testSuites.?.state, .{
+                const json = try Utils.stringify(self.getAllocator(), self.testSuites.?.state, .{
                     .emit_null_optional_fields = true,
                 });
                 defer self.getAllocator().free(json);
@@ -155,7 +156,7 @@ pub const FileManager = struct {
         //     return er;
         // };
         // if (fileStat.size == 0) {
-        //     const json = try Utils.stringify(self.getAllocator(), u8, self.state.?.state, .{
+        //     const json = try Utils.stringify(self.getAllocator(), self.state.?.state, .{
         //         .emit_null_optional_fields = true,
         //         .whitespace = .indent_2,
         //     });
@@ -251,7 +252,7 @@ pub const FileManager = struct {
             if (!std.mem.containsAtLeast(u8, name, 1, ".")) {
                 @panic("FileManager::saveScreenShot()::file must contain .png|.jpeg|.txt|.log");
             }
-            // try Utils.deleteFileIfExists(self.screenShotsDir, name);
+            try Utils.deleteFileIfExists(self.screenShotsDir, name);
             const file = try self.screenShotsDir.createFile(name, .{});
             defer file.close();
             try file.writeAll(&dest);
@@ -266,7 +267,7 @@ pub const FileManager = struct {
                 today.day,
             });
             const name = try Utils.createFileName(100, &buf, timeStr, .PNG);
-            // try Utils.deleteFileIfExists(self.screenShotsDir, name);
+            try Utils.deleteFileIfExists(self.screenShotsDir, name);
             const file = try self.screenShotsDir.createFile(name, .{});
             defer file.close();
             try file.writeAll(&dest);
@@ -281,10 +282,10 @@ pub const FileManager = struct {
             \\
         ;
         const cwd = Utils.getCWD();
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteExampleUiDetached));
-        // try self.createDeleteDetachedShFileData(startUISession, self.files.exampleUIAppName);
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteExampleUiDetached));
+        try self.createDeleteDetachedShFileData(startUISession, self.files.exampleUIAppName);
         var startUiExampleFIle = try cwd.createFile(self.setShFileByOs(Actions.startExampleUISh), .{});
         defer startUiExampleFIle.close();
         try startUiExampleFIle.chmod(777);
@@ -325,10 +326,10 @@ pub const FileManager = struct {
         defer self.getAllocator().free(CWD_PATH);
         try self.log(Types.LogLevels.INFO, "FileManger::startE2E()::file path", .{CWD_PATH});
 
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.buildAndInstallSh));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.buildAndInstallSh));
         self.buildAndInstall(cwd, CWD_PATH) catch |e| {
             try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::received error:", .{e});
             @panic(@errorName(e));
@@ -470,10 +471,10 @@ pub const FileManager = struct {
             }
         }
         var arrayList = try std.ArrayList([]const u8).initCapacity(self.getAllocator(), 100);
-        defer arrayList.deinit();
+        defer arrayList.deinit(self.getAllocator());
         var t = std.mem.splitAny(u8, chromeDriverURL, "/");
         while (t.next()) |value| {
-            try arrayList.append(value);
+            try arrayList.append(self.getAllocator(), value);
         }
         const chromeDriverFileName = arrayList.items[arrayList.items.len - 1];
         if (chromeDriverFileName.len == 0 or Utils.eql(u8, chromeDriverFileName, "UNKNOWN")) {
@@ -519,7 +520,7 @@ pub const FileManager = struct {
     }
     fn createStartDriverDetachedSh(self: *Self) !void {
         const cwd = Utils.getCWD();
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startDriverDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startDriverDetached));
         var startDriverDetachedSh = try cwd.createFile(self.setShFileByOs(Actions.startDriverDetached), .{});
         defer startDriverDetachedSh.close();
         try startDriverDetachedSh.chmod(777);
@@ -530,7 +531,7 @@ pub const FileManager = struct {
     }
     fn createDeleteDriverDetachedSh(self: *Self) !void {
         const cwd = Utils.getCWD();
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteDriverDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteDriverDetached));
         var deleteDriverSessionDetachedSh = try cwd.createFile(self.setShFileByOs(Actions.deleteDriverDetached), .{});
         defer deleteDriverSessionDetachedSh.close();
         try deleteDriverSessionDetachedSh.chmod(777);
@@ -544,7 +545,7 @@ pub const FileManager = struct {
         if (logFilePath) |path| {
             chromeDriverLogFilePath = path;
         } else {
-            // try Utils.deleteFileIfExists(self.logger.logDir, self.files.driverOutFile);
+            try Utils.deleteFileIfExists(self.logger.logDir, self.files.driverOutFile);
             self.driverOutFile = try self.logger.logDir.createFile(self.files.driverOutFile, .{ .truncate = true });
             const CWD_PATH = try Utils.getCWD().realpathAlloc(self.getAllocator(), ".");
             defer self.getAllocator().free(CWD_PATH);
@@ -562,7 +563,7 @@ pub const FileManager = struct {
         const cwd = Utils.getCWD();
         const chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.chromeDriverOutFilePath);
         defer self.getAllocator().free(chromeDriverLogFilePath);
-        // try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startChromeDriver));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startChromeDriver));
         var startChromeDriver = try cwd.createFile(self.setShFileByOs(Actions.startChromeDriver), .{});
         defer startChromeDriver.close();
         try startChromeDriver.chmod(777);
@@ -570,10 +571,10 @@ pub const FileManager = struct {
             self.getAllocator(),
             Utils.MAX_BUFF_SIZE,
         );
-        defer chromeDriverPathArray.deinit();
+        defer chromeDriverPathArray.deinit(self.getAllocator());
         var splitChromePath = std.mem.splitSequence(u8, chromeDriverOptions.chromeDriverExecPath.?, "/");
         while (splitChromePath.next()) |next| {
-            try chromeDriverPathArray.append(next);
+            try chromeDriverPathArray.append(self.getAllocator(), next);
         }
         const chromeDriverExec = chromeDriverPathArray.pop();
         var exeFileName: []const u8 = "";

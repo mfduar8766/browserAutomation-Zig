@@ -18,7 +18,7 @@ pub fn CreateQueue(comptime T: type) type {
             };
         }
         pub fn deInit(self: *Self) void {
-            self.list.deinit();
+            self.list.deinit(self.alloc);
         }
         pub fn enqueue(self: *Self, value: type) !void {
             if (self.isFull()) {

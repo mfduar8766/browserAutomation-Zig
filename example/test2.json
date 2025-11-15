@@ -1,0 +1,50 @@
+{
+  "name": "tests",
+  "type": "folder",
+  "children": [
+    {
+      "name": "TestOne",
+      "type": "folder",
+      "children": [
+        {
+          "name": "Sample1",
+          "type": "feature_suite",
+          "path": "tests/TestOne/**.feature"
+        }
+      ]
+    },
+    {
+      "name": "TestTwo",
+      "type": "folder",
+      "children": [
+        {
+          "name": "Sample2",
+          "type": "feature_suite",
+          "path": "tests/TestTwo/**.feature"
+        }
+      ]
+    },
+    {
+      "name": "TestThree",
+      "type": "folder",
+      "children": [
+        {
+          "name": "Sample3",
+          "type": "feature_suite",
+          "path": "tests/TestThree/**.feature"
+        },
+        {
+          "name": "TestThree_I",
+          "type": "folder",
+          "children": [
+            {
+              "name": "Sample3a",
+              "type": "feature_suite",
+              "path": "tests/TestThree/TestThree_I/**.feature"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
