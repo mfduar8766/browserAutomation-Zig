@@ -98,83 +98,42 @@ pub const TestSuites = struct {
         // }
         var tests = try cwd.openDir(testFolderName, .{ .access_sub_paths = true, .iterate = true });
         defer tests.close();
-        try walkDir(self.allocator, tests, testFolderName);
-        // self.populateTestSuites(cwd, testFolderName) catch |errr| {
-        //     @panic(@errorName(errr));
-        // };
-    }
-    fn populateTestSuites(self: *Self, dir: std.fs.Dir, dirName: []const u8) !void {
-        var dirCount: usize = 1;
-        var fileCount: usize = 1;
-        try self.find(dir, dirName, &dirCount, &fileCount);
-    }
-    fn find(self: *Self, dir: std.fs.Dir, dirName: []const u8, dirCount: *usize, fileCount: *usize) !void {
-        std.debug.print("Start: {s}\n", .{dirName});
-        if (self.fileTree == null) {
-            self.fileTree = try Tree.Tree([]const u8).init(
-                self.allocator,
-                Tree.TreeNodeValues([]const u8).init("folder", dirName, "tests"),
-            );
-        }
-        // var list: std.ArrayList([]const u8) = std.ArrayList([]const u8).empty;
-        // defer list.deinit(self.allocator);
-        var openCurrentDir = try dir.openDir(dirName, .{ .access_sub_paths = true, .iterate = true });
-        defer openCurrentDir.close();
-        var itter = openCurrentDir.iterate();
-        while (true) {
-            const optional_entry = itter.next() catch |err| {
-                return err;
-            };
-            if (optional_entry == null) {
-                std.debug.print("\nEnd of directory {s} reached.\n", .{dirName});
-                break;
-            }
-            // if (dirCount > self.state.suites.len) {
-            //     std.debug.print("\nDirectories is greater than list len. Exiting program.\n", .{});
-            //     break;
-            // }
-            const entry = optional_entry.?;
-            std.debug.print("EntryName: {s}, Type: {any}, dirCount: {d}, fileCount: {d}\n", .{
-                entry.name,
-                entry.kind,
-                dirCount.*,
-                fileCount.*,
-            });
-            if (entry.kind == std.fs.File.Kind.directory) {
-                self.lock.lock();
-                dirCount.* += 1;
-                std.debug.print("Parent: {s}, Child: {s} Kind: {any}\n", .{ dirName, entry.name, entry.kind });
-                // if (list.items.len == 0) {
-                //     try list.append(self.allocator, testFolderName);
-                // }
-                // try list.append(self.allocator, entry.name);
-                // const filePath = try std.mem.join(
-                //     self.allocator,
-                //     "/",
-                //     list.items,
-                // );
-                // defer self.allocator.free(filePath);
-                // std.debug.print("folderPath: {s}\n", .{filePath});
 
-                // _ = try self.fileTree.insert(
-                //     dirName,
-                //     Tree.TreeNodeValues([]const u8).init("folder", entry.name, filePath),
-                // );
+        self.fileTree = try Tree.Tree([]const u8).init(
+            self.allocator,
+            Tree.TreeNodeValues([]const u8).init(
+                "folder",
+                testFolderName,
+                "tests/",
+            ),
+        );
 
-                self.lock.unlock();
-                try self.find(openCurrentDir, entry.name, dirCount, fileCount);
+        try self.walkDir(self.allocator, tests, testFolderName);
+        if (self.fileTree) |fileTree| {
+            const found = try fileTree.find("TestThree");
+            if (found) |f| {
+                std.debug.print("FOUND: {s}\n", .{f.value.path});
             }
-            // if (entry.kind == std.fs.File.Kind.file) {
-            //     fileCount.* += 1;
-            //     std.debug.print("FileName: {s}, dirName: {s}, fileCount: {d}\n", .{
-            //         dirName,
-            //         entry.name,
-            //         fileCount.*,
-            //     });
-            // }
+            // const file = try cwd.createFile("newFile.json", .{});
+            // defer file.close();
+            // try file.chmod(0o664);
+
+            // var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+            // var fba = std.heap.FixedBufferAllocator.init(&buf);
+            // var out = std.io.Writer.Allocating.init(fba.allocator());
+            // const writter = &out.writer;
+            // defer out.deinit();
+            // try std.json.Stringify.value(
+            //     fileTree,
+            //     .{ .emit_null_optional_fields = false, .whitespace = .indent_2 },
+            //     writter,
+            // );
+            // file.writeAll(out.written()) catch |errr| {
+            //     @panic(@errorName(errr));
+            // };
         }
     }
-    pub fn walkDir(allocator: std.mem.Allocator, dir: std.fs.Dir, path_prefix: []const u8) !void {
+    pub fn walkDir(self: *Self, allocator: std.mem.Allocator, dir: std.fs.Dir, path_prefix: []const u8) !void {
         // 1. Get an iterator for the directory entries
         var entries = dir.iterate();
 
@@ -182,22 +141,26 @@ pub const TestSuites = struct {
         while (try entries.next()) |entry| {
             const full_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ path_prefix, entry.name }) catch @panic("OOM during path formatting");
             defer allocator.free(full_path);
-            std.debug.print("Path: {s}\n", .{full_path});
-
-            // 3. Check the file type
             switch (entry.kind) {
-                // Found a regular file
                 .file => {
-                    std.debug.print("  [File] {s}\n", .{full_path});
+                    std.debug.print("  [File] prefix: {s}, name: {s}, path: {s}\n", .{ path_prefix, entry.name, full_path });
+                    if (self.fileTree) |fileTreee| {
+                        if (try fileTreee.find(entry.name)) |found| {
+                            _ = try found.addChild(Tree.TreeNodeValues([]const u8).init("file", entry.name, full_path));
+                        }
+                    }
                 },
-                // Found a directory, so recurse!
                 .directory => {
-                    std.debug.print("  [Dir] {s}/\n", .{full_path});
-                    // Open the subdirectory relative to the current Dir object
+                    std.debug.print("  [Dir]: prefix: {s}, name: {s}, path: {s}/\n", .{ path_prefix, entry.name, full_path });
+                    if (self.fileTree) |fileTree| {
+                        if (try fileTree.find(path_prefix)) |found| {
+                            std.debug.print("FOUND-LOOP: {s}\n", .{found.value.path});
+                            _ = try found.addChild(Tree.TreeNodeValues([]const u8).init("folder", entry.name, full_path));
+                        }
+                    }
                     var sub_dir = try dir.openDir(entry.name, .{});
                     defer sub_dir.close();
-                    // Recursive call to continue the traversal (sequential DFS)
-                    try walkDir(allocator, sub_dir, full_path);
+                    try self.walkDir(allocator, sub_dir, full_path);
                 },
                 // Ignore other file types (like symlinks, pipes, etc.)
                 else => {

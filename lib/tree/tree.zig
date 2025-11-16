@@ -178,7 +178,6 @@ fn TreeNode(comptime T: type) type {
         value: TreeNodeValues(T),
         children: std.ArrayList(*Self),
         parent: ?*Self = null,
-        filePath: std.ArrayList([]const u8),
 
         pub fn init(allocator: Allocator, value: TreeNodeValues(T), parent: ?*Self) !*Self {
             const tree = try allocator.create(Self);
@@ -187,18 +186,16 @@ fn TreeNode(comptime T: type) type {
                 .value = value,
                 .children = std.ArrayList(*Self).empty,
                 .parent = parent,
-                .filePath = std.ArrayList([]const u8).empty,
             };
             return tree;
         }
         pub fn deinit(self: *Self) void {
             self.children.deinit(self.allocator);
-            self.filePath.deinit(self.allocator);
             self.allocator.destroy(self);
         }
         pub fn addChild(self: *Self, value: TreeNodeValues(T)) !*Self {
             const child = try TreeNode(T).init(self.allocator, value, self);
-            std.debug.print("ADD-CHILD: type: {s}, name: {s}, path: {S}\n", .{ value.dirType, value.name, value.path });
+            // std.debug.print("ADD-CHILD: type: {s}, name: {s}, path: {S}\n", .{ value.dirType, value.name, value.path });
             try self.children.append(self.allocator, child);
             return child;
         }

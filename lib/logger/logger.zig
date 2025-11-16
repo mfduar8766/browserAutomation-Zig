@@ -148,22 +148,5 @@ const LoggerData = struct {
         _ = try file.seekFromEnd(0);
         _ = try stdout.print("{s}\n", .{bytes});
         try stdout.flush();
-
-        // const buffWritter = std.fs.File.stdout().writer(&buff);
-        // const writter = &buffWritter.interface;
-        // _ = try file.seekFromEnd(0);
-        // _ = try writter.print("{s}\n", .{bytes});
-        // try buffWritter.flush();
-
-        // var bufWriter = std.io.bufferedWriter(file.writer());
-        // const writer = bufWriter.writer();
-        // _ = try file.seekFromEnd(0);
-        // _ = try writer.print("{s}\n", .{bytes});
-        // try bufWriter.flush();
-        // const stdout_file = std.io.getStdOut().writer();
-        // var bw = std.io.bufferedWriter(stdout_file);
-        // const stdout = bw.writer();
-        // try stdout.print("{s}\n", .{bytes});
-        // try bw.flush();
     }
 };
