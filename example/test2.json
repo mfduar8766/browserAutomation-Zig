@@ -5,10 +5,11 @@
     {
       "name": "TestOne",
       "type": "folder",
+      "path": "tests/TestOne",
       "children": [
         {
-          "name": "Sample1",
-          "type": "feature_suite",
+          "name": "Sample",
+          "type": "file",
           "path": "tests/TestOne/**.feature"
         }
       ]
@@ -16,10 +17,11 @@
     {
       "name": "TestTwo",
       "type": "folder",
+      "path": "tests/TestTwo",
       "children": [
         {
           "name": "Sample2",
-          "type": "feature_suite",
+          "type": "file",
           "path": "tests/TestTwo/**.feature"
         }
       ]
@@ -27,19 +29,21 @@
     {
       "name": "TestThree",
       "type": "folder",
+      "path": "tests/TestThree",
       "children": [
         {
           "name": "Sample3",
-          "type": "feature_suite",
+          "type": "file",
           "path": "tests/TestThree/**.feature"
         },
         {
           "name": "TestThree_I",
           "type": "folder",
+          "path": "tests/TestThree/TestThree_I",
           "children": [
             {
               "name": "Sample3a",
-              "type": "feature_suite",
+              "type": "file",
               "path": "tests/TestThree/TestThree_I/**.feature"
             }
           ]

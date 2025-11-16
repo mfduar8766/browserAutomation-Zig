@@ -609,6 +609,15 @@ pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return std.mem.endsWith(T, haystack, needle);
 }
 
+pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
+    return std.mem.containsAtLeast(
+        T,
+        haystack,
+        expected_count,
+        needle,
+    );
+}
+
 /// sleep() - Takes a duration in milliseconds
 pub fn sleep(durrationMs: u64) void {
     const multiplier = @as(u64, @intFromFloat(1e6));

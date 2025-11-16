@@ -1,5 +1,5 @@
-Feature: Sample2
+Feature: Sample
 
-  Scenario: Test Two
+  Scenario: Test One
 
     Given The user clicks on the "Test 2" button
