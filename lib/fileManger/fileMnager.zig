@@ -95,55 +95,61 @@ pub const FileManager = struct {
     testSuites: ?TestSuites = null,
     isE2eRunning: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, runningE2E: bool) !Self {
-        var fileManager = FileManager{
+    pub fn init(allocator: std.mem.Allocator, runningE2E: bool) !*Self {
+        const fileManager = try allocator.create(Self);
+        fileManager.* = Self{
             .arena = std.heap.ArenaAllocator.init(allocator),
             .isE2eRunning = runningE2E,
         };
+
+        // var fileManager = FileManager{
+        //     .arena = std.heap.ArenaAllocator.init(allocator),
+        //     .isE2eRunning = runningE2E,
+        // };
         fileManager.logger = Logger.init(fileManager.files.loggerFileDir) catch |e| {
             try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(e));
             @panic("FileManager::init()::failed to init fileManager, exiting program...");
         };
         if (fileManager.isE2eRunning) {
-            try fileManager.logger.info("FileManager::init()::running E2E suit", null);
+            try fileManager.logger.info("FileManager::init()::running E2E suite", null);
             fileManager.setUp() catch |er| {
                 try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(er));
-                defer fileManager.deinit();
+                // defer fileManager.deinit();
                 @panic("FileManager::inint()::failed to initialize state");
             };
         }
         return fileManager;
     }
     fn setUp(self: *Self) !void {
-        const cwd = Utils.getCWD();
         self.testSuites = TestSuites.init(self.arena.allocator()) catch |err| {
             try self.log(
                 Types.LogLevels.ERROR,
                 "FileManager::setUp::()::state::init()::received error",
                 @errorName(err),
             );
-            defer self.deinit();
+            // defer self.deinit();
             return err;
         };
-        Utils.fileExists(cwd, self.setShFileByOs(Actions.stateJSON)) catch |e| {
-            if (e == Utils.Errors.FileNotFound) {
-                //TODO: NOT SURE IF WE DO THIS ON START OR JUST WHEN EACH FUNC IS CALLED
-                // try self.handleFileDeletion();
-                // try self.handleFileCreation();
-                self.stateJsonFile = try cwd.createFile(self.setShFileByOs(Actions.stateJSON), .{});
-                try self.stateJsonFile.?.chmod(0o664);
-                const json = try Utils.stringify(self.getAllocator(), self.testSuites.?.state, .{
-                    .emit_null_optional_fields = true,
-                });
-                defer self.getAllocator().free(json);
-                self.stateJsonFile.?.writeAll(json) catch |errr| {
-                    return errr;
-                };
-            } else {
-                defer self.deinit();
-                return e;
-            }
-        };
+        // const cwd = Utils.getCWD();
+        // Utils.fileExists(cwd, self.setShFileByOs(Actions.stateJSON)) catch |e| {
+        //     if (e == Utils.Errors.FileNotFound) {
+        //         //TODO: NOT SURE IF WE DO THIS ON START OR JUST WHEN EACH FUNC IS CALLED
+        //         // try self.handleFileDeletion();
+        //         // try self.handleFileCreation();
+        //         self.stateJsonFile = try cwd.createFile(self.setShFileByOs(Actions.stateJSON), .{});
+        //         try self.stateJsonFile.?.chmod(0o664);
+        //         const json = try Utils.stringify(self.getAllocator(), self.testSuites.?.state, .{
+        //             .emit_null_optional_fields = true,
+        //         });
+        //         defer self.getAllocator().free(json);
+        //         self.stateJsonFile.?.writeAll(json) catch |errr| {
+        //             return errr;
+        //         };
+        //     } else {
+        //         defer self.deinit();
+        //         return e;
+        //     }
+        // };
         // self.stateJsonFile = cwd.openFile(self.setShFileByOs(Actions.stateJSON), .{
         //     .mode = .read_write,
         // }) catch |err| {
@@ -167,6 +173,7 @@ pub const FileManager = struct {
         // }
     }
     pub fn deinit(self: *Self) void {
+        std.debug.print("DEINIT FILEMANAGER\n", .{});
         if (self.driverOutFile != null) {
             self.driverOutFile.?.close();
         }
@@ -181,6 +188,8 @@ pub const FileManager = struct {
             self.testSuites.?.deinit();
         }
         self.arena.deinit();
+        const allocator = self.arena.child_allocator;
+        allocator.destroy(self);
     }
     pub fn log(self: *Self, logType: Types.LogLevels, message: []const u8, data: anytype) !void {
         switch (logType) {
@@ -447,6 +456,11 @@ pub const FileManager = struct {
                 return self.files.deleteExampleUiDetachedSH;
             },
         };
+    }
+    pub fn runSelectedTest(self: *Self, testName: []const u8) !void {
+        if (self.testSuites != null) {
+            try self.testSuites.?.runSelectedTest(testName);
+        }
     }
     fn getAllocator(self: *Self) std.mem.Allocator {
         return self.arena.allocator();

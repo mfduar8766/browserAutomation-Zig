@@ -171,7 +171,7 @@ pub fn TreeNodeValues(comptime T: type) type {
     };
 }
 
-fn TreeNode(comptime T: type) type {
+pub fn TreeNode(comptime T: type) type {
     return struct {
         const Self = @This();
         allocator: Allocator,
@@ -190,7 +190,13 @@ fn TreeNode(comptime T: type) type {
             return tree;
         }
         pub fn deinit(self: *Self) void {
+            for (self.children.items) |child| {
+                child.deinit();
+            }
             self.children.deinit(self.allocator);
+            self.allocator.free(self.value.dirType);
+            self.allocator.free(self.value.name);
+            self.allocator.free(self.value.path);
             self.allocator.destroy(self);
         }
         pub fn addChild(self: *Self, value: TreeNodeValues(T)) !*Self {
@@ -198,6 +204,38 @@ fn TreeNode(comptime T: type) type {
             // std.debug.print("ADD-CHILD: type: {s}, name: {s}, path: {S}\n", .{ value.dirType, value.name, value.path });
             try self.children.append(self.allocator, child);
             return child;
+        }
+        pub fn jsonStringify(
+            self: *const Self,
+            jws: anytype, // This will be a std.json.WriteStream
+        ) !void {
+            try jws.beginObject();
+
+            // 1. Serialize the 'value' fields
+            // Assuming T (your string type) is serializable (e.g., []const u8)
+            try jws.objectField("dirType");
+            try jws.write(self.value.dirType);
+
+            try jws.objectField("name");
+            try jws.write(self.value.name);
+
+            try jws.objectField("path");
+            try jws.write(self.value.path);
+
+            // 2. Serialize the 'children' array (recursive step)
+            try jws.objectField("children");
+            try jws.beginArray();
+
+            // Iterate over children and recursively call jsonStringify
+            for (self.children.items) |child_node| {
+                // The write function handles the recursive call to jsonStringify
+                // Note: Zig's JSON module automatically handles pointers to types
+                // that implement jsonStringify.
+                try jws.write(child_node);
+            }
+
+            try jws.endArray();
+            try jws.endObject();
         }
     };
 }

@@ -33,7 +33,7 @@ pub fn main() !void {
     // _ = try chan.recv();
 
     var fm = try FileManager.init(allocator, true);
-
+    try fm.runSelectedTest("sampleTestThree_I.feature");
     // var driver = try Driver.init(allocator, Types.ChromeDriverConfigOptions{
     //     .chromeDriverExecPath = "/Users/matheusduarte/Desktop/browserAutomation-Zig/example/chromeDriver/chromedriver-mac-x64/chromedriver",
     //     .chromeDriverPort = 4200,

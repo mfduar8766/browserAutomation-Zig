@@ -469,6 +469,17 @@ pub fn formatString(bufLen: comptime_int, buf: *[bufLen]u8, comptime fmt: []cons
     return @as([]const u8, try std.fmt.bufPrint(buf, fmt, args));
 }
 
+pub fn formatStringAndCopy(allocator: Allocator, bufLen: comptime_int, buf: *[bufLen]u8, comptime fmt: []const u8, args: anytype) ![]const u8 {
+    const formatted_slice = try std.fmt.bufPrint(buf, fmt, args);
+    // 2. Use the allocator to duplicate (copy) the string slice onto the heap
+    // The new slice returned here is stable and owned by the allocator.
+    return try copyString(allocator, formatted_slice);
+}
+
+pub fn copyString(allocator: Allocator, slice: []const u8) ![]const u8 {
+    return allocator.dupe(u8, slice);
+}
+
 pub fn stringFmt(buf: *[MAX_BUFF_SIZE]u8, args: anytype) ![]const u8 {
     return @as([]const u8, try std.fmt.bufPrint(buf, "{s}", args));
 }
