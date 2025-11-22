@@ -1,0 +1,13 @@
+{
+  "name": "example-ui-app",
+  "version": "1.0.0",
+  "description": "Example UI for automation demonstration",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "copy": "mkdir -p dist && cp index.js dist && cp index.html dist",
+    "start": "npm run clean && npm run copy && node dist/index.js",
+    "build": "npm run clean && npm run copy && npm run start"
+  }
+}

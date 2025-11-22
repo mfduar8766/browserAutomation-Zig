@@ -14,7 +14,7 @@
 
     .fingerprint = 0x6eec9b9f03297c0a,
 
-    .minimum_zig_version = "0.14.0",
+    .minimum_zig_version = "0.15.2",
 
     // This field is optional.
     // This is currently advisory only; Zig does not yet do anything

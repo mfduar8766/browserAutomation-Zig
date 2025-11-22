@@ -2,6 +2,7 @@ const std = @import("std");
 const FileManager = @import("common").FileManager;
 const Utils = @import("common").Utils;
 
+//TODO: NOT SURE I NEED THIS ATM MAYBE JUST FOR TESTING FOR NOW?
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -14,7 +15,7 @@ pub fn main() !void {
     defer allocator.free(value);
     std.debug.print("PATH: {s}\n", .{value});
 
-    var FM = try FileManager.init(allocator);
+    var FM = try FileManager.init(allocator, true);
     defer FM.deinit();
     // try FM.startE2E(value);
     // Utils.printLn("Sleeping for 30 seconds...", .{});

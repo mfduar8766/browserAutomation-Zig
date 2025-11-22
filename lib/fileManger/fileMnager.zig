@@ -5,7 +5,7 @@ const Logger = @import("../logger/logger.zig").Logger;
 const Types = @import("../types/types.zig");
 const Utils = @import("../utils/utils.zig");
 const Http = @import("../http/http.zig").Http;
-const State = @import("state.zig").State;
+const TestSuites = @import("testSuites.zig").TestSuites;
 
 pub const Actions = enum {
     ///startChromeDriver - ./startChromeDriver.sh
@@ -26,7 +26,10 @@ pub const Actions = enum {
     startE2eSh,
     ///buildAndInstallSh - ./buildAndInstall.sh
     buildAndInstallSh,
+    ///state.json - State for the E2E
     stateJSON,
+    ///deleteExampleUiDetached - ./deleteExampleUiDetached.sh
+    deleteExampleUiDetached,
 };
 
 const Files = struct {
@@ -70,6 +73,10 @@ const Files = struct {
     comptime buildAndInstallShW: []const u8 = ".\\buildAndInstall.sh",
     comptime stateJSON: []const u8 = "./state.json",
     comptime stateJSON_W: []const u8 = ".\\state.json",
+    ///exampleUIAppName - Example UI app node process name
+    comptime exampleUIAppName: []const u8 = "example-ui-app",
+    comptime deleteExampleUiDetachedSH: []const u8 = "./deleteExampleUIDetached.sh",
+    comptime deleteExampleUiDetachedSHW: []const u8 = ".\\deleteExampleUIDetached.sh",
 };
 
 pub const FileManager = struct {
@@ -77,6 +84,7 @@ pub const FileManager = struct {
     const chromeDriverSession: []const u8 = "chromeDriverSession";
     const E2eSession: []const u8 = "E2eSession";
     const chromedriver: []const u8 = "chromedriver";
+    const startUISession: []const u8 = "startUISession";
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
     driverOutFile: ?std.fs.File = null,
@@ -84,69 +92,88 @@ pub const FileManager = struct {
     screenShotsDir: ?std.fs.Dir = null,
     comptime osType: []const u8 = Utils.getOsType(),
     stateJsonFile: ?std.fs.File = null,
-    state: ?State = null,
+    testSuites: ?TestSuites = null,
+    isE2eRunning: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator) !Self {
-        var fileManager = FileManager{
+    pub fn init(allocator: std.mem.Allocator, runningE2E: bool) !*Self {
+        const fileManager = try allocator.create(Self);
+        fileManager.* = Self{
             .arena = std.heap.ArenaAllocator.init(allocator),
+            .isE2eRunning = runningE2E,
         };
+
+        // var fileManager = FileManager{
+        //     .arena = std.heap.ArenaAllocator.init(allocator),
+        //     .isE2eRunning = runningE2E,
+        // };
         fileManager.logger = Logger.init(fileManager.files.loggerFileDir) catch |e| {
             try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(e));
             @panic("FileManager::init()::failed to init fileManager, exiting program...");
         };
-        fileManager.setUp() catch |er| {
-            try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(er));
-            defer fileManager.deinit();
-            @panic("FileManager::inint()::failed to initialize state");
-        };
+        if (fileManager.isE2eRunning) {
+            try fileManager.logger.info("FileManager::init()::running E2E suite", null);
+            fileManager.setUp() catch |er| {
+                try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(er));
+                // defer fileManager.deinit();
+                @panic("FileManager::inint()::failed to initialize state");
+            };
+        }
         return fileManager;
     }
     fn setUp(self: *Self) !void {
-        const cwd = Utils.getCWD();
-        self.state = State.init(self.arena.allocator()) catch |err| {
-            try self.log(Types.LogLevels.ERROR, "FileManager::setUp::()::received error", @errorName(err));
-            defer self.deinit();
+        self.testSuites = TestSuites.init(self.arena.allocator()) catch |err| {
+            try self.log(
+                Types.LogLevels.ERROR,
+                "FileManager::setUp::()::state::init()::received error",
+                @errorName(err),
+            );
+            // defer self.deinit();
             return err;
         };
-        Utils.fileExists(cwd, self.setShFileByOs(Actions.stateJSON)) catch |e| {
-            if (e == Utils.Errors.FileNotFound) {
-                self.stateJsonFile = try cwd.createFile(self.setShFileByOs(Actions.stateJSON), .{});
-                try self.stateJsonFile.?.chmod(0o664);
-                const json = try Utils.stringify(self.getAllocator(), u8, self.state.?.state, .{
-                    .emit_null_optional_fields = true,
-                });
-                defer self.getAllocator().free(json);
-                self.stateJsonFile.?.writeAll(json) catch |errr| {
-                    return errr;
-                };
-            } else {
-                defer self.deinit();
-                return e;
-            }
-        };
-        self.stateJsonFile = cwd.openFile(self.setShFileByOs(Actions.stateJSON), .{
-            .mode = .read_write,
-            .truncate = true,
-        }) catch |err| {
-            defer self.deinit();
-            return err;
-        };
-        try self.stateJsonFile.?.chmod(0o664);
-        const fileStat = self.stateJsonFile.?.stat() catch |er| {
-            defer self.deinit();
-            return er;
-        };
-        if (fileStat.size == 0) {
-            const json = try Utils.stringify(self.getAllocator(), u8, self.state.?.state, .{
-                .emit_null_optional_fields = true,
-            });
-            defer self.getAllocator().free(json);
-            self.stateJsonFile.?.writeAll(json) catch |errr| {
-                return errr;
-            };
-        }
+        // const cwd = Utils.getCWD();
+        // Utils.fileExists(cwd, self.setShFileByOs(Actions.stateJSON)) catch |e| {
+        //     if (e == Utils.Errors.FileNotFound) {
+        //         //TODO: NOT SURE IF WE DO THIS ON START OR JUST WHEN EACH FUNC IS CALLED
+        //         // try self.handleFileDeletion();
+        //         // try self.handleFileCreation();
+        //         self.stateJsonFile = try cwd.createFile(self.setShFileByOs(Actions.stateJSON), .{});
+        //         try self.stateJsonFile.?.chmod(0o664);
+        //         const json = try Utils.stringify(self.getAllocator(), self.testSuites.?.state, .{
+        //             .emit_null_optional_fields = true,
+        //         });
+        //         defer self.getAllocator().free(json);
+        //         self.stateJsonFile.?.writeAll(json) catch |errr| {
+        //             return errr;
+        //         };
+        //     } else {
+        //         defer self.deinit();
+        //         return e;
+        //     }
+        // };
+        // self.stateJsonFile = cwd.openFile(self.setShFileByOs(Actions.stateJSON), .{
+        //     .mode = .read_write,
+        // }) catch |err| {
+        //     defer self.deinit();
+        //     return err;
+        // };
+        // try self.stateJsonFile.?.chmod(0o664);
+        // const fileStat = self.stateJsonFile.?.stat() catch |er| {
+        //     defer self.deinit();
+        //     return er;
+        // };
+        // if (fileStat.size == 0) {
+        //     const json = try Utils.stringify(self.getAllocator(), self.state.?.state, .{
+        //         .emit_null_optional_fields = true,
+        //         .whitespace = .indent_2,
+        //     });
+        //     defer self.getAllocator().free(json);
+        //     self.stateJsonFile.?.writeAll(json) catch |errr| {
+        //         return errr;
+        //     };
+        // }
     }
     pub fn deinit(self: *Self) void {
+        std.debug.print("DEINIT FILEMANAGER\n", .{});
         if (self.driverOutFile != null) {
             self.driverOutFile.?.close();
         }
@@ -157,10 +184,12 @@ pub const FileManager = struct {
             self.stateJsonFile.?.close();
         }
         self.logger.deinit();
-        if (self.state != null) {
-            self.state.?.deinit();
+        if (self.testSuites != null) {
+            self.testSuites.?.deinit();
         }
         self.arena.deinit();
+        const allocator = self.arena.child_allocator;
+        allocator.destroy(self);
     }
     pub fn log(self: *Self, logType: Types.LogLevels, message: []const u8, data: anytype) !void {
         switch (logType) {
@@ -258,23 +287,26 @@ pub const FileManager = struct {
             \\#!/bin/bash
             \\echo "Change dir to UI and start node server..."
             \\cd "UI"
-            \\npm run start
+            \\npm run build
+            \\
         ;
         const cwd = Utils.getCWD();
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
-        var startUiExampleFIle = try cwd.createFile(self.setShFileByOs(Actions.startExampleUISh), .{
-            .truncate = true,
-        });
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteExampleUiDetached));
+        try self.createDeleteDetachedShFileData(startUISession, self.files.exampleUIAppName);
+        var startUiExampleFIle = try cwd.createFile(self.setShFileByOs(Actions.startExampleUISh), .{});
         defer startUiExampleFIle.close();
         try startUiExampleFIle.chmod(777);
         try startUiExampleFIle.writeAll(startUIShFileData);
-        var startExampleDetachedFile = try cwd.createFile(self.setShFileByOs(Actions.startUIDetached), .{
-            .truncate = true,
-        });
+        var startExampleDetachedFile = try cwd.createFile(self.setShFileByOs(Actions.startUIDetached), .{});
         defer startExampleDetachedFile.close();
         try startExampleDetachedFile.chmod(777);
-        const startUIDeatachedFileData = try createStartDetachedShFileData("startUI", "node", self.setShFileByOs(Actions.startExampleUISh));
+        const startUIDeatachedFileData = try createStartDetachedShFileData(
+            startUISession,
+            self.files.exampleUIAppName,
+            self.setShFileByOs(Actions.startExampleUISh),
+        );
         startExampleDetachedFile.writeAll(startUIDeatachedFileData) catch |e| {
             @panic(@errorName(e));
         };
@@ -292,6 +324,10 @@ pub const FileManager = struct {
         };
         code = try Utils.executeCmds(1, self.getAllocator(), &arg2, fileName2);
         try Utils.checkExitCode(code.exitCode, code.message);
+    }
+    pub fn stopExampleUI(self: *Self) !void {
+        try self.log(Types.LogLevels.INFO, "FileManager::stopExampleUI", null);
+        try self.executeFiles(self.setShFileByOs(Actions.deleteExampleUiDetached));
     }
     pub fn startE2E(self: *Self, url: []const u8) !void {
         const cwd = Utils.getCWD();
@@ -413,7 +449,18 @@ pub const FileManager = struct {
                 }
                 return self.files.stateJSON;
             },
+            Actions.deleteExampleUiDetached => {
+                if (self.isWindows()) {
+                    return self.files.deleteExampleUiDetachedSHW;
+                }
+                return self.files.deleteExampleUiDetachedSH;
+            },
         };
+    }
+    pub fn runSelectedTest(self: *Self, testName: []const u8) !void {
+        if (self.testSuites != null) {
+            try self.testSuites.?.runSelectedTest(testName);
+        }
     }
     fn getAllocator(self: *Self) std.mem.Allocator {
         return self.arena.allocator();
@@ -438,10 +485,10 @@ pub const FileManager = struct {
             }
         }
         var arrayList = try std.ArrayList([]const u8).initCapacity(self.getAllocator(), 100);
-        defer arrayList.deinit();
+        defer arrayList.deinit(self.getAllocator());
         var t = std.mem.splitAny(u8, chromeDriverURL, "/");
         while (t.next()) |value| {
-            try arrayList.append(value);
+            try arrayList.append(self.getAllocator(), value);
         }
         const chromeDriverFileName = arrayList.items[arrayList.items.len - 1];
         if (chromeDriverFileName.len == 0 or Utils.eql(u8, chromeDriverFileName, "UNKNOWN")) {
@@ -538,10 +585,10 @@ pub const FileManager = struct {
             self.getAllocator(),
             Utils.MAX_BUFF_SIZE,
         );
-        defer chromeDriverPathArray.deinit();
+        defer chromeDriverPathArray.deinit(self.getAllocator());
         var splitChromePath = std.mem.splitSequence(u8, chromeDriverOptions.chromeDriverExecPath.?, "/");
         while (splitChromePath.next()) |next| {
-            try chromeDriverPathArray.append(next);
+            try chromeDriverPathArray.append(self.getAllocator(), next);
         }
         const chromeDriverExec = chromeDriverPathArray.pop();
         var exeFileName: []const u8 = "";
@@ -699,4 +746,21 @@ pub const FileManager = struct {
             @panic(@errorName(er));
         };
     }
+    //TODO: NOT SURE IF THIS IS NEEDED
+    // fn handleFileDeletion(self: *Self) !void {
+    //     const cwd = Utils.getCWD();
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startDriverDetached));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteDriverDetached));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteExampleUiDetached));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.buildAndInstallSh));
+    //     try Utils.deleteFileIfExists(self.logger.logDir, self.files.driverOutFile);
+    //     try cwd.deleteDir(self.screenShotsDir);
+    //     try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startChromeDriver));
+    // }
+    // fn handleFileCreation(_: *Self) !void {}
 };

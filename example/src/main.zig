@@ -28,19 +28,18 @@ const FileManager = @import("common").FileManager;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    // var fileM = try FileManager.init(allocator);
-    // try fileM.startE2E();
-
     // const T = Channels.Chan(u8);
     // var chan = T.init(allocator);
     // _ = try chan.recv();
 
-    var driver = try Driver.init(allocator, Types.ChromeDriverConfigOptions{
-        .chromeDriverExecPath = "/Users/matheusduarte/Desktop/browserAutomation-Zig/example/chromeDriver/chromedriver-mac-x64/chromedriver",
-        .chromeDriverPort = 4200,
-    });
-    try driver.waitForDriver(DriverTypes.WaitOptions{});
-    try driver.launchWindow("https://www.google.com/");
+    var fm = try FileManager.init(allocator, true);
+    try fm.runSelectedTest("sampleTestThree_I.feature");
+    // var driver = try Driver.init(allocator, Types.ChromeDriverConfigOptions{
+    //     .chromeDriverExecPath = "/Users/matheusduarte/Desktop/browserAutomation-Zig/example/chromeDriver/chromedriver-mac-x64/chromedriver",
+    //     .chromeDriverPort = 4200,
+    // });
+    // try driver.waitForDriver(DriverTypes.WaitOptions{});
+    // try driver.launchWindow("http://127.0.0.1:3000/");
     // const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "APjFqb");
     // try driver.keyInValue(el, "foo");
     // try driver.sendEnterCmd();
@@ -48,11 +47,12 @@ pub fn main() !void {
     // try driver.goBack();
     // std.time.sleep(5_000_000_000);
     // try driver.goForward();
-    std.time.sleep(5_000_000_000);
-    try driver.stopDriver();
+    // std.time.sleep(5_000_000_000);
+    // try driver.stopDriver();
     defer {
+        fm.deinit();
         // allocator.free(el);
-        driver.deinit();
+        // driver.deinit();
         // fileM.deInit();
         // defer chan.deInit();
         const deinit_status = gpa.deinit();

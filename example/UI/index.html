@@ -4,32 +4,107 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Document</title>
-    <style>
-      .test2 {
-        margin-top: 5px;
-        margin-bottom: 5px;
-      }
-    </style>
+    <style></style>
   </head>
   <body
     style="
       height: 100%;
       width: 100%;
       display: flex;
-      justify-content: flex-start;
-      flex-direction: row;
+      justify-content: space-between;
+      flex-direction: column;
+      align-items: flex-start;
     "
   >
     <div
       style="
         display: flex;
         flex-direction: column;
-        justify-content: space-around;
+        justify-content: space-between;
+        margin-bottom: 1rem;
       "
     >
-      <button id="test1">Test 1</button>
-      <button class="test2">Test 2</button>
-      <input type="text" name="name" id="name" />
+      <div>Sample Fields</div>
+      <input type="text" name="name" id="testInput1" />
+      <button
+        name="testButton1"
+        style="margin-top: 1rem; margin-bottom: 1rem"
+        id="testButton1"
+      >
+        Test 1
+      </button>
+      <button name="testButton2" id="testButton2">Test 2</button>
+    </div>
+
+    <div
+      style="
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      "
+    >
+      <form
+        style="
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          margin-bottom: 1rem;
+        "
+        id="testForm1"
+      >
+        <div>Sample Form</div>
+        <input type="text" name="name" id="testInput3" />
+        <input
+          style="margin-top: 1rem"
+          type="date"
+          name="date"
+          id="testInput4"
+        />
+        <div
+          style="
+            display: flex;
+            flex-direction: row;
+            justify-content: space-evenly;
+            align-items: flex-start;
+            margin-top: 1rem;
+          "
+        >
+          <label for="checkbox">Selected</label>
+          <input type="checkbox" name="checkbox" id="testButton5" />
+        </div>
+        <input
+          style="margin-top: 1rem"
+          type="email"
+          name="email"
+          id="testButton6"
+        />
+        <input
+          style="margin-top: 1rem"
+          type="password"
+          name="password"
+          id="testButton7"
+        />
+        <input
+          style="margin-top: 1rem"
+          type="file"
+          name="file"
+          id="testButton8"
+        />
+        <button style="margin-top: 1rem" id="testButton3">Test 2</button>
+      </form>
     </div>
   </body>
+  <script>
+    const getTestButton1 = document.getElementById('testButton1');
+    const getTestButton2 = document.getElementById('testButton2');
+
+    getTestButton1.addEventListener('click', (e) => {
+      e.preventDefault();
+      alert('Clicked One');
+    });
+    getTestButton2.addEventListener('click', (e) => {
+      e.preventDefault();
+      alert('Clicked Two');
+    });
+  </script>
 </html>
