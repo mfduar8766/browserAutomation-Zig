@@ -9,6 +9,9 @@ pub fn build(b: *std.Build) void {
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
+    const te2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "te2e", te2e);
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
@@ -40,6 +43,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
     exe.root_module.addImport("driver", driver);
     exe.root_module.addImport("common", common);
+    exe.root_module.addOptions("config", options);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

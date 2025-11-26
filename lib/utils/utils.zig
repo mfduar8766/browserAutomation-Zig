@@ -8,6 +8,19 @@ const Types = @import("../types/types.zig");
 const process = std.process;
 const print = std.debug.print;
 const builtIn = @import("builtin");
+const posix = std.posix;
+
+// pub fn Clousure() fn () void {
+//     const ShutDownHandler = struct {
+//         pub fn waitForShutDownSignal(_: *@This()) void {}
+//     };
+//     const shutDown = ShutDownHandler{};
+//     return struct {
+//         pub fn waitForShutDownSignal() void {
+//             return shutDown.waitForShutDownSignal();
+//         }
+//     }.waitForShutDownSignal;
+// }
 
 pub const Errors = error{
     FileNotFound,
@@ -31,6 +44,45 @@ pub const Errors = error{
     EnvironmentVariableNotFound,
     SegmentationFault,
     OutOfMemory,
+    WriteFailed,
+    PermissionDenied,
+    Unseekable,
+    SharingViolation,
+    PathAlreadyExists,
+    PipeBusy,
+    NoDevice,
+    NameTooLong,
+    InvalidUtf8,
+    InvalidWtf8,
+    BadPathName,
+    NetworkNotFound,
+    AntivirusInterference,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    FileTooBig,
+    NoSpaceLeft,
+    NotDir,
+    DeviceBusy,
+    FileLocksNotSupported,
+    FileBusy,
+    DiskQuota,
+    InvalidArgument,
+    NotOpenForWriting,
+    MessageTooBig,
+    ReadOnlyFileSystem,
+    FileSystem,
+    CurrentWorkingDirectoryUnlinked,
+    InvalidBatchScriptArg,
+    InvalidExe,
+    ResourceLimitReached,
+    InvalidUserId,
+    ProcessAlreadyExec,
+    InvalidProcessGroupId,
+    InvalidName,
+    InvalidHandle,
+    WaitAbandoned,
+    WaitTimeOut,
 };
 
 pub const MAX_BUFF_SIZE = 1024;
@@ -167,21 +219,22 @@ pub fn makeDirPath(cwd: std.fs.Dir, dirPath: []const u8) Result {
 pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     var itter = dir.iterate();
     var exists = false;
-    while (itter.next()) |entry| {
-        if (entry) |e| {
-            if (e.kind == fs.File.Kind.file and eql(u8, e.name, fileName)) {
-                exists = true;
-                break;
-            }
-            if (e.kind == fs.File.Kind.directory) {
-                const subDir = try dir.openDir(e.name, .{ .access_sub_paths = true, .iterate = true });
-                exists = try fileExistsInDir(subDir, fileName);
-            }
-        } else {
-            @panic("Utils::fileExistsInDir()::entry does not exist");
+    while (try itter.next()) |entry| {
+        if (eql(u8, entry.name, ".") or eql(u8, entry.name, "..")) continue;
+        switch (entry.kind) {
+            .file => {
+                if (eql(u8, entry.name, fileName)) {
+                    exists = true;
+                    break;
+                }
+            },
+            .directory => {
+                var sub_dir = try dir.openDir(entry.name, .{ .iterate = true, .access_sub_paths = true });
+                defer sub_dir.close();
+                exists = try fileExists(sub_dir, fileName);
+            },
+            else => {},
         }
-    } else |err| {
-        std.debug.print("Utils::fileExistsInDir()::err:{}\n", .{err});
     }
     return exists;
 }
@@ -633,7 +686,8 @@ pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: us
 pub fn sleep(durrationMs: u64) void {
     const multiplier = @as(u64, @intFromFloat(1e6));
     const duration = durrationMs * multiplier;
-    time.sleep(duration);
+    // time.sleep(duration);
+    std.Thread.sleep(duration);
 }
 
 pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) Allocator.Error![]u8 {
@@ -669,13 +723,13 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
     defer allocator.free(file_path);
 
     fileExists(cwd, file_path) catch |e| {
-        printLn("Utils::getEnvVar()::received error {}", e);
+        printLn("Utils::getEnvVar()::env file does not exist {any} checking for env vars on system", e);
         if (e == Errors.FileNotFound) {
             return try std.process.getEnvVarOwned(allocator, key);
         }
     };
     const file = cwd.openFile(file_path, .{ .mode = .read_only }) catch |er| {
-        printLn("Utils::getEnvVar()::received error {}", er);
+        printLn("Utils::getEnvVar()::received error {any} trying to open file", er);
         return er;
     };
     defer file.close();
@@ -687,12 +741,16 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
     if (fileStat.size == 0) {
         return Errors.EmptyFile;
     }
+    const file_size = @as(usize, @intCast(fileStat.size));
+    const fileAllocBuff = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(fileAllocBuff);
+
     var buf_reader = io.bufferedReader(file.reader());
     var in_stream = buf_reader.reader();
-    var buf: [1024]u8 = undefined;
+    // var buf: [1024]u8 = undefined;
     var value: []const u8 = "";
-    var bytes: []u8 = undefined;
-    while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+    var envValueBytes: []u8 = undefined;
+    while (try in_stream.readUntilDelimiterOrEof(&fileAllocBuff, '\n')) |line| {
         if (startsWith(u8, @as([]const u8, line), key)) {
             const envValue = try splitAndJoinStr(
                 allocator,
@@ -703,13 +761,13 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
             defer allocator.free(envValue);
             if (envValue.len > 0) {
                 value = envValue[1];
-                bytes = try allocator.alloc(u8, value.len);
-                std.mem.copyForwards(u8, bytes, value);
+                envValueBytes = try allocator.alloc(u8, value.len);
+                std.mem.copyForwards(u8, envValueBytes, value);
                 break;
             }
         }
     }
-    return bytes;
+    return envValueBytes;
 }
 
 pub fn readAndParseFile(

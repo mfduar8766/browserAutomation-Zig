@@ -199,31 +199,37 @@ pub const Driver = struct {
     chromeDriverExecPath: []const u8 = "",
     sessionID: []const u8 = "",
     isDriverRunning: bool = false,
-    fileManager: FileManager = undefined,
+    fileManager: *FileManager = undefined,
     height: i32 = 1500,
     width: i32 = 1500,
     windowPositionX: i32 = 0,
     windowPositionY: i32 = 0,
     isHeadlessMode: bool = false,
+    runExampleUI: bool = false,
 
-    pub fn init(allocator: Allocator, options: ?Types.ChromeDriverConfigOptions) !Self {
-        var driver = Driver{
+    pub fn init(allocator: Allocator, runExampleUI: bool, options: ?Types.ChromeDriverConfigOptions) !*Self {
+        const driverPrt = try allocator.create(Self);
+        driverPrt.* = Self{
             .allocator = allocator,
+            .runExampleUI = runExampleUI,
         };
-        driver.fileManager = FileManager.init(std.heap.page_allocator, config.te2e) catch |e| {
+        driverPrt.fileManager = try FileManager.init(allocator, config.te2e) catch |e| {
             std.debug.print("Driver::init()::received error: {s}\n", .{@errorCast(e)});
             @panic("Driver::init()::failed to init driver, exiting program...");
         };
-        try driver.checkOptions(options);
-        if (driver.chromeDriverExecPath.len == 0) {
-            try driver.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
+        try driverPrt.checkOptions(options);
+        if (driverPrt.chromeDriverExecPath.len == 0) {
+            try driverPrt.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
         }
-        try driver.fileManager.executeFiles(driver.fileManager.setShFileByOs(FileActions.startDriverDetached));
-        return driver;
+        if (!driverPrt.runExampleUI) {
+            try driverPrt.fileManager.executeFiles(driverPrt.fileManager.setShFileByOs(FileActions.startDriverDetached));
+        }
+        return driverPrt;
     }
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.sessionID);
-        self.fileManager.deInit();
+        self.fileManager.deinit();
+        self.allocator.destroy(self);
     }
     ///setHeadlessMode - Used to run without a browser.
     ///
@@ -238,11 +244,12 @@ pub const Driver = struct {
     ///
     ///Example:
     ///
-    ///var driver = Driver.init(allocator, logger);
+    ///var driver = Driver.init(allocator, false, options);
     ///
+    ///If wanting to run the exampleUI for a quick test pass in an empty URL string
     ///try driver.launchWindow("http://google.com");
     pub fn launchWindow(self: *Self, url: []const u8) !void {
-        if (url.len == 0) {
+        if (!config.te2e and url.len == 0) {
             @panic("Driver::launchWindow()::url is empty cannot navigate to page, exiting program...");
         }
         if (!self.isDriverRunning) {
@@ -935,6 +942,10 @@ pub const Driver = struct {
         return findElementQuery;
     }
     fn handleLaunchWindow(self: *Self, url: []const u8) !void {
+        if (self.runExampleUI) {
+            try self.fileManager.runExampleUI();
+            return;
+        }
         if (self.isDriverRunning) {
             if (config.te2e) {
                 self.setHeadlessMode();

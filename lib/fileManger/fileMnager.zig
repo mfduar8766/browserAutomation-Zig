@@ -84,7 +84,8 @@ pub const FileManager = struct {
     const chromeDriverSession: []const u8 = "chromeDriverSession";
     const E2eSession: []const u8 = "E2eSession";
     const chromedriver: []const u8 = "chromedriver";
-    const startUISession: []const u8 = "startUISession";
+    const ExampleUiSession: []const u8 = "ExampleUiSession";
+    const localHost: []const u8 = "http://127.0.0.1:3000";
     arena: std.heap.ArenaAllocator = undefined,
     logger: Logger = undefined,
     driverOutFile: ?std.fs.File = null,
@@ -94,6 +95,7 @@ pub const FileManager = struct {
     stateJsonFile: ?std.fs.File = null,
     testSuites: ?TestSuites = null,
     isE2eRunning: bool = false,
+    isExampleUiRunning: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, runningE2E: bool) !*Self {
         const fileManager = try allocator.create(Self);
@@ -101,11 +103,6 @@ pub const FileManager = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .isE2eRunning = runningE2E,
         };
-
-        // var fileManager = FileManager{
-        //     .arena = std.heap.ArenaAllocator.init(allocator),
-        //     .isE2eRunning = runningE2E,
-        // };
         fileManager.logger = Logger.init(fileManager.files.loggerFileDir) catch |e| {
             try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(e));
             @panic("FileManager::init()::failed to init fileManager, exiting program...");
@@ -114,10 +111,11 @@ pub const FileManager = struct {
             try fileManager.logger.info("FileManager::init()::running E2E suite", null);
             fileManager.setUp() catch |er| {
                 try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state", @errorName(er));
-                // defer fileManager.deinit();
+                defer fileManager.deinit();
                 @panic("FileManager::inint()::failed to initialize state");
             };
         }
+        // try fileManager.handleGracefulShutDown();
         return fileManager;
     }
     fn setUp(self: *Self) !void {
@@ -127,7 +125,7 @@ pub const FileManager = struct {
                 "FileManager::setUp::()::state::init()::received error",
                 @errorName(err),
             );
-            // defer self.deinit();
+            defer self.deinit();
             return err;
         };
         // const cwd = Utils.getCWD();
@@ -173,7 +171,6 @@ pub const FileManager = struct {
         // }
     }
     pub fn deinit(self: *Self) void {
-        std.debug.print("DEINIT FILEMANAGER\n", .{});
         if (self.driverOutFile != null) {
             self.driverOutFile.?.close();
         }
@@ -212,6 +209,7 @@ pub const FileManager = struct {
         try outw.print("{s}\n", .{data});
     }
     pub fn executeFiles(self: *Self, fileName: []const u8) !void {
+        std.debug.print("EXXXXXXX: {s}\n", .{fileName});
         if (comptime builtIn.os.tag == .windows) {
             const argv = [3][]const u8{
                 "chmod",
@@ -283,6 +281,22 @@ pub const FileManager = struct {
         }
     }
     pub fn runExampleUI(self: *Self) !void {
+        const cwd = Utils.getCWD();
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteExampleUiDetached));
+
+        var deleteExampleUiDetached = try cwd.createFile(self.setShFileByOs(Actions.deleteExampleUiDetached), .{});
+        defer deleteExampleUiDetached.close();
+        try deleteExampleUiDetached.chmod(777);
+        const deleteExampleUiFileData = try createDeleteDetachedShFileData(
+            ExampleUiSession,
+            self.files.exampleUIAppName,
+        );
+        deleteExampleUiDetached.writeAll(deleteExampleUiFileData) catch |err| {
+            Utils.printLn("FileManager::runExampleUI()::received error: {any} while trying to write deleteExampleUiDetached", err);
+            @panic(@errorName(err));
+        };
         const startUIShFileData: []const u8 =
             \\#!/bin/bash
             \\echo "Change dir to UI and start node server..."
@@ -290,11 +304,6 @@ pub const FileManager = struct {
             \\npm run build
             \\
         ;
-        const cwd = Utils.getCWD();
-        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startExampleUISh));
-        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startUIDetached));
-        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteExampleUiDetached));
-        try self.createDeleteDetachedShFileData(startUISession, self.files.exampleUIAppName);
         var startUiExampleFIle = try cwd.createFile(self.setShFileByOs(Actions.startExampleUISh), .{});
         defer startUiExampleFIle.close();
         try startUiExampleFIle.chmod(777);
@@ -303,7 +312,7 @@ pub const FileManager = struct {
         defer startExampleDetachedFile.close();
         try startExampleDetachedFile.chmod(777);
         const startUIDeatachedFileData = try createStartDetachedShFileData(
-            startUISession,
+            ExampleUiSession,
             self.files.exampleUIAppName,
             self.setShFileByOs(Actions.startExampleUISh),
         );
@@ -324,17 +333,26 @@ pub const FileManager = struct {
         };
         code = try Utils.executeCmds(1, self.getAllocator(), &arg2, fileName2);
         try Utils.checkExitCode(code.exitCode, code.message);
+        try self.log(
+            Types.LogLevels.INFO,
+            "FileManager::runExampleUI()::running example UI at http://127.0.0.1:3000...",
+            null,
+        );
+        self.isExampleUiRunning = true;
     }
     pub fn stopExampleUI(self: *Self) !void {
-        try self.log(Types.LogLevels.INFO, "FileManager::stopExampleUI", null);
-        try self.executeFiles(self.setShFileByOs(Actions.deleteExampleUiDetached));
+        if (self.isExampleUiRunning) {
+            try self.log(Types.LogLevels.INFO, "FileManager::stopExampleUI()", null);
+            try self.executeFiles(self.setShFileByOs(Actions.deleteExampleUiDetached));
+            self.isExampleUiRunning = false;
+        } else {
+            try self.log(Types.LogLevels.INFO, "FileManager::stopExampleUI()::no UI running.", null);
+        }
     }
-    pub fn startE2E(self: *Self, url: []const u8) !void {
+    pub fn startE2E(self: *Self, url: ?[]const u8) !void {
         const cwd = Utils.getCWD();
         const CWD_PATH = try cwd.realpathAlloc(self.getAllocator(), ".");
         defer self.getAllocator().free(CWD_PATH);
-        try self.log(Types.LogLevels.INFO, "FileManger::startE2E()::file path", .{CWD_PATH});
-
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.deleteE2eDetached));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eSh));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
@@ -373,7 +391,7 @@ pub const FileManager = struct {
             self.files.electronFolder,
             self.files.electronBuildPath,
             self.files.e2eRunner,
-            url,
+            if (self.isExampleUiRunning) localHost else url.?,
         });
         var e2eFile = try cwd.createFile(self.setShFileByOs(Actions.startE2eSh), .{});
         defer e2eFile.close();
@@ -382,10 +400,16 @@ pub const FileManager = struct {
             @panic(@errorName(er));
         };
         try self.executeFiles(self.setShFileByOs(Actions.startE2eDetached));
+        try self.log(Types.LogLevels.INFO, "FileManager::startE2E()::starting e2e...", null);
     }
     pub fn stopE2E(self: *Self) !void {
-        try self.logger.info("Calling stop E2E...", null);
-        try self.executeFiles(self.setShFileByOs(Actions.deleteE2eDetached));
+        if (self.isE2eRunning) {
+            try self.log(Types.LogLevels.INFO, "FileManager::stopE2E()", null);
+            try self.executeFiles(self.setShFileByOs(Actions.deleteE2eDetached));
+            self.isE2eRunning = false;
+        } else {
+            try self.log(Types.LogLevels.INFO, "FileManager::stopE2E()::no e2e running.", null);
+        }
     }
     pub fn setShFileByOs(self: *Self, action: Actions) []const u8 {
         return switch (action) {
