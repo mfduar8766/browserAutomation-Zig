@@ -144,6 +144,8 @@ const LoggerData = struct {
         var stdout_writer_wrapper = std.fs.File.stdout().writer(&buff);
         const stdout: *std.io.Writer = &stdout_writer_wrapper.interface;
         _ = try file.seekFromEnd(0);
+        try file.writeAll(bytes);
+        _ = try file.write("\n");
         _ = try stdout.print("{s}\n", .{bytes});
         try stdout.flush();
     }

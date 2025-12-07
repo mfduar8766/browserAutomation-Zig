@@ -27,8 +27,6 @@ pub const Actions = enum {
     startE2eSh,
     ///buildAndInstallSh - ./buildAndInstall.sh
     buildAndInstallSh,
-    ///state.json - State for the E2E
-    stateJSON,
     ///deleteExampleUiDetached - ./deleteExampleUiDetached.sh
     deleteExampleUiDetached,
     ///checkPortInUse.sh
@@ -74,8 +72,6 @@ const Files = struct {
     comptime electronBuildPath: []const u8 = "dist/mac/E2E.app/Contents/MacOS",
     comptime buildAndInstallSh: []const u8 = "./buildAndInstall.sh",
     comptime buildAndInstallShW: []const u8 = ".\\buildAndInstall.sh",
-    comptime stateJSON: []const u8 = "./state.json",
-    comptime stateJSON_W: []const u8 = ".\\state.json",
     ///exampleUIAppName - Example UI app node process name
     comptime exampleUIAppName: []const u8 = "example-ui-app",
     comptime deleteExampleUiDetachedSH: []const u8 = "./deleteExampleUIDetached.sh",
@@ -89,6 +85,7 @@ pub const FileManager = struct {
     const chromeDriverSession: []const u8 = "chromeDriverSession";
     const E2eSession: []const u8 = "E2eSession";
     const chromedriver: []const u8 = "chromedriver";
+    const chromeDriverFolder: []const u8 = "chromeDriver";
     const ExampleUiSession: []const u8 = "ExampleUiSession";
     const localHost: []const u8 = "http://127.0.0.1:3000";
     arena: std.heap.ArenaAllocator = undefined,
@@ -97,7 +94,6 @@ pub const FileManager = struct {
     files: Files = Files{},
     screenShotsDir: ?std.fs.Dir = null,
     comptime osType: []const u8 = Utils.getOsType(),
-    // stateJsonFile: ?std.fs.File = null,
     testSuites: ?TestSuites = null,
     isE2eRunning: bool = false,
     isExampleUiRunning: bool = false,
@@ -132,47 +128,6 @@ pub const FileManager = struct {
             defer self.deinit();
             return err;
         };
-        // const cwd = Utils.getCWD();
-        // Utils.fileExists(cwd, self.setShFileByOs(Actions.stateJSON)) catch |e| {
-        //     if (e == Utils.Errors.FileNotFound) {
-        //         //TODO: NOT SURE IF WE DO THIS ON START OR JUST WHEN EACH FUNC IS CALLED
-        //         // try self.handleFileDeletion();
-        //         // try self.handleFileCreation();
-        //         self.stateJsonFile = try cwd.createFile(self.setShFileByOs(Actions.stateJSON), .{});
-        //         try self.stateJsonFile.?.chmod(0o775);
-        //         const json = try Utils.stringify(self.getAllocator(), self.testSuites.?.state, .{
-        //             .emit_null_optional_fields = true,
-        //         });
-        //         defer self.getAllocator().free(json);
-        //         self.stateJsonFile.?.writeAll(json) catch |errr| {
-        //             return errr;
-        //         };
-        //     } else {
-        //         defer self.deinit();
-        //         return e;
-        //     }
-        // };
-        // self.stateJsonFile = cwd.openFile(self.setShFileByOs(Actions.stateJSON), .{
-        //     .mode = .read_write,
-        // }) catch |err| {
-        //     defer self.deinit();
-        //     return err;
-        // };
-        // try self.stateJsonFile.?.chmod(0o775);
-        // const fileStat = self.stateJsonFile.?.stat() catch |er| {
-        //     defer self.deinit();
-        //     return er;
-        // };
-        // if (fileStat.size == 0) {
-        //     const json = try Utils.stringify(self.getAllocator(), self.state.?.state, .{
-        //         .emit_null_optional_fields = true,
-        //         .whitespace = .indent_2,
-        //     });
-        //     defer self.getAllocator().free(json);
-        //     self.stateJsonFile.?.writeAll(json) catch |errr| {
-        //         return errr;
-        //     };
-        // }
     }
     pub fn deinit(self: *Self) void {
         if (self.driverOutFile != null) {
@@ -181,9 +136,6 @@ pub const FileManager = struct {
         if (self.screenShotsDir != null) {
             self.screenShotsDir.?.close();
         }
-        // if (self.stateJsonFile != null) {
-        //     self.stateJsonFile.?.close();
-        // }
         self.logger.deinit();
         if (self.testSuites != null) {
             self.testSuites.?.deinit();
@@ -214,8 +166,6 @@ pub const FileManager = struct {
         const stdout = &stdout_writer.interface;
         try stdout.print("{s}\n", .{data});
         try stdout.flush(); // Don't forget to flush!
-        // const outw = std.io.getStdOut().writer();
-        // try outw.print("{s}\n", .{data});
     }
     pub fn executeFiles(self: *Self, fileName: []const u8, needExecution: bool) !void {
         if (comptime builtIn.os.tag == .windows) {
@@ -490,12 +440,6 @@ pub const FileManager = struct {
                 }
                 return self.files.buildAndInstallSh;
             },
-            Actions.stateJSON => {
-                if (self.isWindows()) {
-                    return self.files.stateJSON_W;
-                }
-                return self.files.stateJSON;
-            },
             Actions.deleteExampleUiDetached => {
                 if (self.isWindows()) {
                     return self.files.deleteExampleUiDetachedSHW;
@@ -590,7 +534,7 @@ pub const FileManager = struct {
         defer file.close();
         try file.writeAll(body);
         try file.seekTo(0);
-        Utils.dirExists(Utils.getCWD(), "chromeDriver") catch |e| {
+        Utils.dirExists(Utils.getCWD(), chromeDriverFolder) catch |e| {
             try self.log(Types.LogLevels.ERROR, "FileManager::downoadChromeDriverZip()::chromeDriver folder does not exist creating folder: {s}", @errorName(e));
             try unZipChromeDriver(chromeDriverFileName);
         };
@@ -600,8 +544,8 @@ pub const FileManager = struct {
         const cwd = Utils.getCWD();
         const file = try cwd.openFile(fileName, .{});
         defer file.close();
-        try cwd.makeDir("chromeDriver");
-        var dir = try cwd.openDir("chromeDriver", .{ .iterate = true });
+        try cwd.makeDir(chromeDriverFolder);
+        var dir = try cwd.openDir(chromeDriverFolder, .{ .iterate = true });
         defer dir.close();
         var readerBuff: [Utils.MAX_BUFF_SIZE * 8]u8 = undefined;
         var reader = file.reader(&readerBuff);
@@ -743,6 +687,7 @@ pub const FileManager = struct {
         comptime serviceName: []const u8,
         fileToRun: []const u8,
     ) ![]const u8 {
+        //TODO:NOT SURE IF WE KEEP THIS HERE AND PIPE THE FILE DATA FROM THE FILE ITS SELF
         // const outFileLog: []const u8 = "out";
         // const cleanUpFileName = if (fileToRun.len >= 10 and Utils.containsAtLeast(u8, fileToRun, 1, ".")) fileToRun[2 .. fileToRun.len - 3] else outFileLog;
         // const today = Utils.fromTimestamp(@intCast(time.timestamp()));

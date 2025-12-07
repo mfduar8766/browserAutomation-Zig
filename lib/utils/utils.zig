@@ -10,18 +10,6 @@ const print = std.debug.print;
 const builtIn = @import("builtin");
 const posix = std.posix;
 
-// pub fn Clousure() fn () void {
-//     const ShutDownHandler = struct {
-//         pub fn waitForShutDownSignal(_: *@This()) void {}
-//     };
-//     const shutDown = ShutDownHandler{};
-//     return struct {
-//         pub fn waitForShutDownSignal() void {
-//             return shutDown.waitForShutDownSignal();
-//         }
-//     }.waitForShutDownSignal;
-// }
-
 pub const Errors = error{
     FileNotFound,
     EmptyFile,
@@ -238,36 +226,6 @@ pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     }
     return exists;
 }
-
-//TODO: Make this generic??
-// pub fn createFileName(
-//     bufLen: comptime_int,
-//     buf: *[bufLen]u8,
-//     comptime fmt: []const u8,
-//     args: anytype,
-//     extension: Types.FileExtensions,
-// ) ![]const u8 {
-//     const emptyTuple = .{};
-//     const combinedArgs = emptyTuple ++ args;
-//     return switch (extension) {
-//         Types.FileExtensions.TXT => {
-//             const txtExtension = combinedArgs ++ .{".txt"};
-//             return try formatString(bufLen, buf, fmt, txtExtension);
-//         },
-//         Types.FileExtensions.LOG => {
-//             const logExtension = combinedArgs ++ .{".log"};
-//             return try formatString(bufLen, buf, fmt, logExtension);
-//         },
-//         Types.FileExtensions.JPG => {
-//             const jPegExtension = combinedArgs ++ .{".jpg"};
-//             return try formatString(bufLen, buf, fmt, jPegExtension);
-//         },
-//         Types.FileExtensions.PNG => {
-//             const pngExtension = combinedArgs ++ .{".png"};
-//             return try formatString(bufLen, buf, fmt, pngExtension);
-//         },
-//     };
-// }
 
 pub fn createFileName(bufLen: comptime_int, buf: *[bufLen]u8, args: anytype, extension: Types.FileExtensions) ![]const u8 {
     return switch (extension) {
@@ -785,7 +743,6 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
 
     var buf_reader = io.bufferedReader(file.reader());
     var in_stream = buf_reader.reader();
-    // var buf: [1024]u8 = undefined;
     var value: []const u8 = "";
     var envValueBytes: []u8 = undefined;
     while (try in_stream.readUntilDelimiterOrEof(&fileAllocBuff, '\n')) |line| {
@@ -850,72 +807,3 @@ pub fn writeAllToFile(file: fs.File, data: []const u8) !void {
     };
     try writer.flush();
 }
-
-// pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {
-//     var index: i32 = -1;
-//     var left: usize = 0;
-//     const arrType = @as(@Type(@typeInfo(T)), arr);
-//     const targetTypeRef = @as(@Type(@typeInfo(T2)), target);
-//     var right: usize = arr.len - 1;
-//     while (left <= right) {
-//         index += 1;
-//         var mid = left + (right - left) / 2;
-//         const arrMid = @as(@Type(@typeInfo(T2)), arrType[mid]);
-//         if (eql(@Type(@typeInfo(T2)), arrMid, targetTypeRef)) {
-//             return @as(i32, mid);
-//         } else if (mid < index) {
-//             mid = mid + 1;
-//             left = mid;
-//         } else {
-//             mid = mid - 1;
-//             right = mid;
-//         }
-//     }
-//     return -1;
-// }
-
-// const txtExtension = combinedArgs ++ .{"txt"};
-// print("FFFFF: {any}\n", .{txtExtension});
-// const f = try formatString(bufLen, buf, fmt, txtExtension);
-// print("F: {s}\n", .{f});
-// return f;
-
-// const T = @TypeOf(args);
-// const typeInfo = @typeInfo(T);
-// print("TypeOf({})\n", .{T});
-// if (typeInfo == .Struct) {
-//     const fields = typeInfo.Struct.fields;
-//     // const F = .{};
-//     // const G = struct {};
-//     // const gFields = @typeInfo(@TypeOf(G)).Struct.fields;
-//     // const merge = fields ++ gFields;
-//     // const Y = @Type(.{ .Struct = .{
-//     //     .layout = .auto,
-//     //     .fields = fields ++ gFields,
-//     //     .is_tuple = false,
-//     //     .decls = &.{},
-//     // } });
-//     // print("Y: {any}\n", .{Y});
-
-//     comptime var array: [3]comptime_int = undefined;
-//     // var bufArrayList: [1024]u8 = undefined;
-//     // var fba = std.heap.FixedBufferAllocator.init(&bufArrayList);
-//     // const allocator = fba.allocator();
-//     // comptime var arrList = std.ArrayList(comptime_int).init(std.heap.page_allocator);
-//     // defer arrList.deinit();
-//     comptime var i = 0;
-//     inline for (fields) |field| {
-//         const dvalue_aligned: *align(field.alignment) const anyopaque = @alignCast(field.default_value.?);
-//         const value = @as(*const field.type, @ptrCast(dvalue_aligned)).*;
-//         std.log.info("name: {s} default value: {}", .{ field.name, value });
-//         array[i] = value;
-//         i += 1;
-//         // try arrList.append(value);
-//         // const new_tuple = F ++ .{ value, ".txt" };
-//         // print("S: {any}\n", .{new_tuple});
-//     }
-//     const slice = &array;
-//     print("ITEMS: {s}\n", .{slice});
-//     print("TUPLE: {any}\n", .{std.meta.Tuple(slice)});
-//     return "";
-// }
