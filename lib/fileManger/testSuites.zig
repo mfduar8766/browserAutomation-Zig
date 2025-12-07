@@ -186,7 +186,10 @@ pub const TestSuites = struct {
                     });
 
                     // 2. Open the subdirectory
-                    var sub_dir = try dir.openDir(entry.name, .{});
+                    var sub_dir = try dir.openDir(entry.name, .{
+                        .access_sub_paths = true,
+                        .iterate = true,
+                    });
                     defer sub_dir.close();
 
                     // 3. Recurse, passing the newly inserted node as the next parent

@@ -10,13 +10,27 @@ pub fn build(b: *std.Build) void {
     // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
     const te2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
+    const optimizationMode = b.option([]const u8, "releaseType", "Release optimization mode") orelse "3";
     const options = b.addOptions();
     options.addOption(bool, "te2e", te2e);
+    options.addOption([]const u8, "releaseType", optimizationMode);
+
+    var defaultOptimization = std.builtin.OptimizeMode.ReleaseSafe;
+    if (std.mem.eql(u8, optimizationMode, @tagName(std.builtin.OptimizeMode.Debug))) {
+        defaultOptimization = std.builtin.OptimizeMode.Debug;
+    } else if (std.mem.eql(u8, optimizationMode, @tagName(std.builtin.OptimizeMode.ReleaseFast))) {
+        defaultOptimization = std.builtin.OptimizeMode.ReleaseFast;
+    } else if (std.mem.eql(u8, optimizationMode, @tagName(std.builtin.OptimizeMode.ReleaseSafe))) {
+        defaultOptimization = std.builtin.OptimizeMode.ReleaseSafe;
+    } else if (std.mem.eql(u8, optimizationMode, @tagName(std.builtin.OptimizeMode.ReleaseSmall))) {
+        defaultOptimization = std.builtin.OptimizeMode.ReleaseSmall;
+    }
+    std.debug.print("Running in {s} optimization mode\n", .{@tagName(defaultOptimization)});
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = defaultOptimization });
     const exe = b.addExecutable(.{
         .name = "example",
         .root_module = b.createModule(.{
@@ -37,13 +51,13 @@ pub fn build(b: *std.Build) void {
         },
         .root_source_file = b.path("../automation/src/main.zig"),
     });
+    driver.addOptions("config", options);
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(exe);
     exe.root_module.addImport("driver", driver);
     exe.root_module.addImport("common", common);
-    exe.root_module.addOptions("config", options);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

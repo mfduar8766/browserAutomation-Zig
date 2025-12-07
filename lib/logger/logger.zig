@@ -14,10 +14,13 @@ pub const Logger = struct {
     logData: LoggerData = undefined,
     logFile: fs.File = undefined,
     fileName: []const u8 = "",
+    allocator: std.mem.Allocator = undefined,
 
-    pub fn init(dir: []const u8) !Self {
-        var logger = Logger{};
-        if (dir.len > 0) logger.logDirPath = dir;
+    pub fn init(allocator: std.mem.Allocator, dir: []const u8) !*Self {
+        const loggerPtr = try allocator.create(Self);
+        loggerPtr.* = Self{ .allocator = allocator };
+        // var logger = Logger{};
+        if (dir.len > 0) loggerPtr.logDirPath = dir;
         const res = Utils.makeDirPath(Utils.getCWD(), dir);
         if (!res.Ok) {
             print("Logger::init()::error creating Logs directory:{s}", .{res.Err});
@@ -27,7 +30,7 @@ pub const Logger = struct {
         const max_len = 14;
         var buf: [max_len]u8 = undefined;
         var fmtFileBuf: [max_len]u8 = undefined;
-        logger.fileName = Utils.createFileName(
+        loggerPtr.fileName = Utils.createFileName(
             max_len,
             &buf,
             try Utils.formatString(max_len, &fmtFileBuf, "{d}_{d}_{d}", .{
@@ -42,28 +45,29 @@ pub const Logger = struct {
         };
         const createFileData = try Utils.createFile(
             Utils.getCWD(),
-            logger.logDirPath,
-            logger.fileName,
+            loggerPtr.logDirPath,
+            loggerPtr.fileName,
             null,
         );
-        logger.logData = LoggerData.init();
-        logger.logDir = createFileData.dir;
-        logger.logFile = createFileData.file;
-        return logger;
+        loggerPtr.logData = LoggerData.init();
+        loggerPtr.logDir = createFileData.dir;
+        loggerPtr.logFile = createFileData.file;
+        return loggerPtr;
     }
     pub fn deinit(self: *Self) void {
         self.closeDirAndFiles();
+        self.allocator.destroy(self);
     }
-    pub fn info(self: *Self, message: []const u8, data: anytype) !void {
+    pub fn info(self: *Self, comptime message: []const u8, data: anytype) !void {
         try self.logData.info(self.logFile, message, data);
     }
-    pub fn warn(self: *Self, message: []const u8, data: anytype) !void {
+    pub fn warn(self: *Self, comptime message: []const u8, data: anytype) !void {
         try self.logData.warn(self.logFile, message, data);
     }
-    pub fn err(self: *Self, message: []const u8, data: anytype) !void {
+    pub fn err(self: *Self, comptime message: []const u8, data: anytype) !void {
         try self.logData.err(self.logFile, message, data);
     }
-    pub fn fatal(self: *Self, message: []const u8, data: anytype) !void {
+    pub fn fatal(self: *Self, comptime message: []const u8, data: anytype) !void {
         try self.logData.fatal(self.logFile, message, data);
     }
     pub fn closeDirAndFiles(self: *Self) void {
@@ -82,19 +86,19 @@ const LoggerData = struct {
     pub fn init() LoggerData {
         return LoggerData{};
     }
-    pub fn info(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
+    pub fn info(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.INFO, message, data);
     }
-    pub fn warn(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
+    pub fn warn(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.WARNING, message, data);
     }
-    pub fn err(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
+    pub fn err(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.ERROR, message, data);
     }
-    pub fn fatal(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
+    pub fn fatal(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
         try self.setValues(file, Types.LogLevels.FATAL, message, data);
     }
-    fn setValues(self: *Self, file: fs.File, level: Types.LogLevels, message: []const u8, data: anytype) !void {
+    fn setValues(self: *Self, file: fs.File, level: Types.LogLevels, comptime message: []const u8, data: anytype) !void {
         switch (level) {
             Types.LogLevels.INFO => self.level = Types.LogLevels.get(0),
             Types.LogLevels.WARNING => self.level = Types.LogLevels.get(1),
@@ -107,18 +111,12 @@ const LoggerData = struct {
         self.time = formattedTime;
         try self.createJson(file, message, data);
     }
-    fn createJson(self: *Self, file: fs.File, message: []const u8, data: anytype) !void {
-        const bufLen = 32;
-        var intBuf: [bufLen]u8 = undefined;
-        var bufArrayList: [Utils.MAX_BUFF_SIZE]u8 = undefined;
-        var fbaArrayList = std.heap.FixedBufferAllocator.init(&bufArrayList);
-        // var messageBuf: [1024]u8 = undefined;
+    fn createJson(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
+        var convertToStrBuf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         const T = @TypeOf(data);
         const formattedData = try Utils.convertToString(
-            fbaArrayList.allocator(),
-            bufLen,
-            &intBuf,
-            // &messageBuf,
+            Utils.MAX_BUFF_SIZE,
+            &convertToStrBuf,
             T,
             data,
             message,

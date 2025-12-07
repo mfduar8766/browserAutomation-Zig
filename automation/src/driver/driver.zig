@@ -7,7 +7,9 @@ const DriverTypes = @import("./types.zig");
 const process = std.process;
 const FileManager = @import("common").FileManager;
 const FileActions = @import("common").Actions;
-const config = @import("config");
+const Config = @import("config");
+const AllocatingWriter = std.io.Writer.Allocating;
+const Gs = @import("../main.zig").GracefulShutDown();
 
 const RequestUrlPaths = enum {
     NEW_SESSION,
@@ -192,6 +194,7 @@ pub const Driver = struct {
     const Self = @This();
     const Allocator = std.mem.Allocator;
     const CHROME_DRIVER_DOWNLOAD_URL: []const u8 = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json";
+    const applicationJSON: []const u8 = "application/json";
     comptime chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}",
     chromeDriverPort: i32 = 4200,
     allocator: Allocator,
@@ -213,17 +216,18 @@ pub const Driver = struct {
             .allocator = allocator,
             .runExampleUI = runExampleUI,
         };
-        driverPrt.fileManager = try FileManager.init(allocator, config.te2e) catch |e| {
-            std.debug.print("Driver::init()::received error: {s}\n", .{@errorCast(e)});
+        driverPrt.fileManager = FileManager.init(allocator, Config.te2e) catch |e| {
+            std.debug.print("Driver::init()::received error: {s}\n", .{@errorName(e)});
             @panic("Driver::init()::failed to init driver, exiting program...");
         };
         try driverPrt.checkOptions(options);
-        if (driverPrt.chromeDriverExecPath.len == 0) {
-            try driverPrt.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
-        }
-        if (!driverPrt.runExampleUI) {
-            try driverPrt.fileManager.executeFiles(driverPrt.fileManager.setShFileByOs(FileActions.startDriverDetached));
-        }
+        // if (driverPrt.chromeDriverExecPath.len == 0) {
+        //     try driverPrt.fileManager.log(Types.LogLevels.INFO, "Driver::init()::cannot find chromeDriver exe. Downloading latest version", null);
+        //     try driverPrt.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
+        // }
+        // if (!driverPrt.runExampleUI) {
+        //     try driverPrt.fileManager.executeFiles(driverPrt.fileManager.setShFileByOs(FileActions.startDriverDetached), false);
+        // }
         return driverPrt;
     }
     pub fn deinit(self: *Self) void {
@@ -249,21 +253,19 @@ pub const Driver = struct {
     ///If wanting to run the exampleUI for a quick test pass in an empty URL string
     ///try driver.launchWindow("http://google.com");
     pub fn launchWindow(self: *Self, url: []const u8) !void {
-        if (!config.te2e and url.len == 0) {
+        if (!self.runExampleUI and !self.isDriverRunning and !Config.te2e and url.len == 0) {
             @panic("Driver::launchWindow()::url is empty cannot navigate to page, exiting program...");
         }
-        if (!self.isDriverRunning) {
+        if (!self.runExampleUI and !self.isDriverRunning) {
             @panic("Driver::launchWindow()::driver is not running...");
         }
         self.handleLaunchWindow(url) catch |e| {
-            self.fileManager.logger.fatal("Driver::launchWindow()::Caught error: {}\n", @errorName(e));
+            std.debug.print("Driver::launchWindow()::Caught error: {s}\n", .{@errorName(e)});
             @panic("Driver::launchWindow()::cannout open the browser");
         };
     }
     pub fn closeWindow(self: *Self) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, null);
+        var req = Http.init(self.allocator, self.fileManager.logger);
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -272,7 +274,13 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        const res = try req.delete(urlApi, .{ .server_header_buffer = serverHeaderBuf }, 12);
+        const headers = std.http.Client.Request.Headers{};
+        const res = try req.makeRequest(
+            urlApi,
+            .DELETE,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
         self.isDriverRunning = false;
         defer req.deinit();
@@ -280,9 +288,7 @@ pub const Driver = struct {
     }
     ///deleteSession - Used to delete current session of chromeDriver and close window
     pub fn deleteSession(self: *Self) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, null);
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -292,7 +298,13 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        const res = try req.delete(urlApi, .{ .server_header_buffer = serverHeaderBuf }, 14);
+        const headers = std.http.Client.Request.Headers{};
+        const res = try req.makeRequest(
+            urlApi,
+            .DELETE,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
         self.isDriverRunning = false;
         try self.fileManager.executeShFiles(self.fileManager.files.deleteDriverDetachedSh);
@@ -303,9 +315,7 @@ pub const Driver = struct {
     ///
     /// Find by css, xpath, tagName, id.
     pub fn findElement(self: *Self, selectorType: DriverTypes.SelectorTypes, comptime selectorName: []const u8) ![]const u8 {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 125 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -324,11 +334,13 @@ pub const Driver = struct {
             .{},
         );
         defer allocator.free(body);
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, body, null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            body,
+        );
         defer self.allocator.free(res);
         const parsed = try std.json.parseFromSlice(FindElementBySelectorResponse, self.allocator, res, .{
             .ignore_unknown_fields = true,
@@ -339,9 +351,7 @@ pub const Driver = struct {
         return @as([]const u8, bytes);
     }
     pub fn click(self: *Self, elementID: []const u8) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 1500 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -351,20 +361,20 @@ pub const Driver = struct {
             &urlBuf,
             elementID,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, "{}", null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
     }
     ///getElementByText = Used to get the elementID based on text,
     ///
     ///Caller must free the memory,
     pub fn getElementText(self: *Self, elementID: []const u8) ![]const u8 {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = Utils.MAX_BUFF_SIZE });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -374,11 +384,13 @@ pub const Driver = struct {
             &urlBuf,
             elementID,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.get(urlApi, options, null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .GET,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
         const parsed = try std.json.parseFromSlice(GetElementTextResponse, self.allocator, res, .{
             .ignore_unknown_fields = true,
@@ -389,9 +401,7 @@ pub const Driver = struct {
         return @as([]const u8, bytes);
     }
     pub fn screenShot(self: *Self, fileName: ?[]const u8) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 500000 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -401,11 +411,13 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.get(urlApi, options, null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .GET,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
         const parsed = try std.json.parseFromSlice(ScreenShotResponse, self.allocator, res, .{
             .ignore_unknown_fields = true,
@@ -435,8 +447,11 @@ pub const Driver = struct {
     }
     pub fn waitForDriver(self: *Self, waitOptions: DriverTypes.WaitOptions) !void {
         try self.fileManager.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sleeping for {d} seconds waiting for driver to start....", waitOptions.driverWaitTime);
-        std.time.sleep(waitOptions.driverWaitTime);
-        _ = try Utils.checkIfPortInUse(self.allocator, self.chromeDriverPort);
+        Utils.sleep(waitOptions.driverWaitTime);
+        const response = try Utils.checkIfPortInUse(self.allocator, self.chromeDriverPort);
+        if (response.exitCode == 0) {
+            @panic("Driver::waitForDriver()::port already in use");
+        }
         const MAX_RETRIES = 3;
         var reTries: i32 = 0;
         while (!self.isDriverRunning) {
@@ -444,8 +459,7 @@ pub const Driver = struct {
                 @panic("Driver::waitForDriver()::failed to start chromeDriver, exiting program...");
             }
             try self.fileManager.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sending PING to chromeDriver...", null);
-            const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-            var req = Http.init(self.allocator, null);
+            var req = Http.init(self.allocator, self.fileManager.logger);
             const bufLen = 250;
             var urlBuf: [bufLen]u8 = undefined;
             const urlApi = try self.getRequestUrl(
@@ -454,20 +468,25 @@ pub const Driver = struct {
                 &urlBuf,
                 null,
             );
-            const res = try req.get(urlApi, .{ .server_header_buffer = serverHeaderBuf }, 243);
+            const headers = std.http.Client.Request.Headers{};
+            const res = try req.makeRequest(
+                urlApi,
+                .GET,
+                headers,
+                null,
+            );
             const parsed = try std.json.parseFromSlice(ChromeDriverStatusResponse, self.allocator, res, .{
                 .ignore_unknown_fields = true,
             });
             if (parsed.value.value.ready) {
                 self.isDriverRunning = true;
-                self.allocator.free(serverHeaderBuf);
                 self.allocator.free(res);
                 req.deinit();
                 parsed.deinit();
                 break;
             }
             reTries += 1;
-            std.time.sleep(waitOptions.reTryTimer);
+            Utils.sleep(waitOptions.reTryTimer);
         }
         if (self.isDriverRunning) {
             try self.fileManager.writeToStdOut();
@@ -482,9 +501,7 @@ pub const Driver = struct {
         const slice = try list.toOwnedSlice(self.allocator);
         defer self.allocator.free(slice);
         const payload = KeyInValuePayload{ .text = input, .value = slice };
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -499,20 +516,20 @@ pub const Driver = struct {
         const allocator = fba.allocator();
         const body = try Utils.stringify(allocator, payload, .{});
         defer allocator.free(body);
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, body, null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
     }
     pub fn sendEnterCmd(self: *Self) !void {
-        const f =
+        const body: []const u8 =
             \\{"actions":[{"type":"key","id":"keyboard","actions":[{"type":"keyDown","value":"\uE007"}]}]}
         ;
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 2006 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -522,17 +539,17 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, f, null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            @constCast(body),
+        );
         defer self.allocator.free(res);
     }
     pub fn goBack(self: *Self) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 1341 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -542,17 +559,17 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, "{}", null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
     }
     pub fn goForward(self: *Self) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 1341 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -562,20 +579,28 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, "{}", null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            null,
+        );
         defer self.allocator.free(res);
     }
     pub fn stopDriver(self: *Self) !void {
-        try self.fileManager.executeFiles(self.fileManager.setShFileByOs(FileActions.deleteDriverDetached));
+        if (self.isDriverRunning) {
+            try self.fileManager.executeFiles(self.fileManager.setShFileByOs(FileActions.deleteDriverDetached), false);
+        }
+        if (self.runExampleUI) {
+            try self.fileManager.stopExampleUI();
+        }
+        if (Config.te2e) {
+            try self.fileManager.stopE2E();
+        }
     }
     fn setWindowSize(self: *Self) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 52 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -595,17 +620,17 @@ pub const Driver = struct {
             .{},
         );
         defer allocator.free(body);
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, body, null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            body,
+        );
         defer self.allocator.free(res);
     }
     fn setPosition(self: *Self) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 54 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -625,17 +650,17 @@ pub const Driver = struct {
             .{},
         );
         defer allocator.free(body);
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const res = try req.post(urlApi, options, body, null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const res = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            body,
+        );
         defer self.allocator.free(res);
     }
     fn getSessionID(self: *Self) !void {
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE * 8);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, null);
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -660,19 +685,22 @@ pub const Driver = struct {
             .{ .emit_null_optional_fields = false },
             writter,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const body = try req.post(urlApi, options, out.written(), 2081);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const body = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            out.written(),
+        );
         const parsed = try std.json.parseFromSlice(ChromeDriverSessionResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
         });
         if (parsed.value.value.@"error") |e| {
-            try self.fileManager.log(Types.LogLevels.ERROR, "Driver::getSessionID()::", .{
+            const err = .{
                 .err = e,
                 .message = parsed.value.value.message,
-            });
+            };
+            try self.fileManager.log(Types.LogLevels.ERROR, "Driver::getSessionID()::{any}", .{err});
             try self.stopDriver();
             @panic(parsed.value.value.message.?);
         }
@@ -687,7 +715,7 @@ pub const Driver = struct {
         }
     }
     fn navigateToSite(self: *Self, url: []const u8) !void {
-        try self.fileManager.log(Types.LogLevels.INFO, "Driver::navigateToSite()::navigating to", url);
+        try self.fileManager.log(Types.LogLevels.INFO, "Driver::navigateToSite()::navigating to: {s}", url);
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -696,9 +724,7 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        const serverHeaderBuf: []u8 = try self.allocator.alloc(u8, Utils.MAX_BUFF_SIZE);
-        defer self.allocator.free(serverHeaderBuf);
-        var req = Http.init(self.allocator, .{ .maxReaderSize = 14 });
+        var req = Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
@@ -710,21 +736,23 @@ pub const Driver = struct {
             .{},
             writter,
         );
-        const options = std.http.Client.RequestOptions{
-            .server_header_buffer = serverHeaderBuf,
-            .headers = .{ .content_type = .{ .override = "application/json" } },
-        };
-        const body = try req.post(urlApi, options, out.written(), null);
+        const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
+        const body = try req.makeRequest(
+            urlApi,
+            .POST,
+            headers,
+            out.written(),
+        );
         defer self.allocator.free(body);
     }
     fn checkOptions(self: *Self, options: ?Types.ChromeDriverConfigOptions) !void {
         if (options) |op| {
             if (op.chromeDriverPort) |port| {
-                const code = try self.checkIfPortInUse(port);
+                const code = try Utils.checkIfPortInUse(self.allocator, port);
                 if (code.exitCode == 0) {
                     var buf: [6]u8 = undefined;
                     const intToString = try std.fmt.bufPrint(&buf, "{d}", .{code.exitCode});
-                    try self.fileManager.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port is currently in use", @as(
+                    try self.fileManager.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port is currently in use: {s}", @as(
                         []const u8,
                         intToString,
                     ));
@@ -746,17 +774,12 @@ pub const Driver = struct {
             if (op.chromeDriverExecPath) |path| {
                 if (path.len > 0) self.chromeDriverExecPath = path;
             }
+            if (op.chromeDriverExecPath.?.len == 0) {
+                try self.fileManager.log(Types.LogLevels.INFO, "Driver::init()::cannot find chromeDriver exe. Downloading latest version", null);
+                try self.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
+            }
             try self.fileManager.createFiles(op);
         }
-    }
-    fn checkIfPortInUse(self: *Self, port: i32) !Utils.ExecCmdResponse {
-        var buf: [6]u8 = undefined;
-        const formattedPort = try std.fmt.bufPrint(&buf, ":{d}", .{port});
-        const args = [_][]const u8{
-            "lsof", "-i", formattedPort,
-        };
-        const response = try Utils.executeCmds(3, self.allocator, &args, "");
-        return response;
     }
     fn getRequestUrl(
         self: *Self,
@@ -773,6 +796,7 @@ pub const Driver = struct {
             });
         }
         const chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}";
+
         return switch (chromeRequests) {
             RequestUrlPaths.NEW_SESSION => try Utils.formatString(bufLen, buf, chromeDriverRestURL, .{
                 self.chromeDriverPort,
@@ -944,10 +968,9 @@ pub const Driver = struct {
     fn handleLaunchWindow(self: *Self, url: []const u8) !void {
         if (self.runExampleUI) {
             try self.fileManager.runExampleUI();
-            return;
         }
         if (self.isDriverRunning) {
-            if (config.te2e) {
+            if (Config.te2e) {
                 self.setHeadlessMode();
                 try self.getSessionID();
                 try self.fileManager.startE2E(url);

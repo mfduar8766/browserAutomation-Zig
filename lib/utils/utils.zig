@@ -412,48 +412,69 @@ pub fn executeCmds(
     incomingFileName: []const u8,
 ) !ExecCmdResponse {
     var execResponse = ExecCmdResponse{};
-    var fileName: []const u8 = undefined;
     const outFileLog: []const u8 = "out";
-    const cleanUpFileName = if (incomingFileName.len >= 10) incomingFileName[2 .. incomingFileName.len - 3] else outFileLog;
-    printLn("Utils::executeCmds()::incomingFileName: {s}", cleanUpFileName);
-    const today = fromTimestamp(@intCast(time.timestamp()));
-    const max_len = 100;
-    var buf: [max_len]u8 = undefined;
-    var fmtFileBuf: [max_len]u8 = undefined;
-    fileName = createFileName(
-        max_len,
-        &buf,
-        try formatString(max_len, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
-            cleanUpFileName,
-            today.year,
-            today.month,
-            today.day,
-        }),
-        Types.FileExtensions.LOG,
-    ) catch |e| {
-        printLn("Utils::executeCmds()::err:{any}\n", .{@errorName(e)});
-        @panic("Utils::executeCmds()::error creating fileB=Name exiting program...\n");
-    };
-    try deleteFileIfExists(getCWD(), fileName);
-    const file = try getCWD().createFile(fileName, .{
-        .read = false,
-        .truncate = true,
-    });
-    try file.chmod(0o664); // 0o664 (rw-rw-r--) is safer than 777
-    //CRITICAL FIX: Close the file BEFORE the shell command runs.
-    file.close();
+    const cleanUpFileName = if (incomingFileName.len >= 10 and containsAtLeast(u8, incomingFileName, 1, ".")) incomingFileName[2 .. incomingFileName.len - 3] else outFileLog;
     const argv_slice = &args.*;
-    const full_command = try join(allocator, " ", argv_slice);
-    defer allocator.free(full_command);
-    const command_str = try std.fmt.allocPrint(allocator, "{s} > {s} 2>&1", .{ full_command, fileName });
-    defer allocator.free(command_str);
-    var child = std.process.Child.init(&[_][]const u8{ "/bin/bash", "-c", command_str }, allocator);
+    const fullCommand = try join(allocator, " ", argv_slice);
+    defer allocator.free(fullCommand);
+    printLn("Utils::executeCmds()::argsLen: {d}, incomingFileName: {s}, cleanUpFileName: {s}, fullCommand: {s}", .{
+        argsLen,
+        incomingFileName,
+        cleanUpFileName,
+        fullCommand,
+    });
+    var child: std.process.Child = undefined;
+    if (containsAtLeast(u8, fullCommand, 1, "chmod +x")) {
+        printLn("Utils::executeCmds()::running chmod +x", .{});
+        child = std.process.Child.init(args, allocator);
+    } else {
+        const today = fromTimestamp(@intCast(time.timestamp()));
+        const max_len = 100;
+        var buf: [max_len]u8 = undefined;
+        var fmtFileBuf: [max_len]u8 = undefined;
+        const fileName = createFileName(
+            max_len,
+            &buf,
+            try formatString(max_len, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
+                cleanUpFileName,
+                today.year,
+                today.month,
+                today.day,
+            }),
+            Types.FileExtensions.LOG,
+        ) catch |e| {
+            printLn("Utils::executeCmds()::err:{s}\n", .{@errorName(e)});
+            @panic("Utils::executeCmds()::error creating fileName exiting program...\n");
+        };
+        try deleteFileIfExists(getCWD(), fileName);
+        const file = try getCWD().createFile(fileName, .{
+            .read = false,
+            .truncate = true,
+        });
+        try file.chmod(0o664); // 0o664 (rw-rw-r--) is safer than 777
+        file.close();
+        var commandStrBuf: [100]u8 = undefined;
+        const command_str = try formatStringAndCopy(allocator, 100, &commandStrBuf, "{s} > {s} 2>&1", .{ fullCommand, fileName });
+        defer allocator.free(command_str);
+        const innerCmd = command_str;
+        var cmdBuf: [200]u8 = undefined;
+        const cmd = try std.fmt.bufPrint(&cmdBuf, "{s}", .{innerCmd});
+        std.debug.print("Utils::executeCmds()::running command:{s}\n", .{cmd});
+        child = std.process.Child.init(
+            &[_][]const u8{
+                "/bin/bash",
+                "-c",
+                cmd,
+            },
+            allocator,
+        );
+    }
     try child.spawn();
     const term = try child.wait();
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                printLn("Utils::executeCmds()::The following command exited with error code: {any}", .{code});
+                printLn("Utils::executeCmds()::The following command exited with error code: {d}", .{code});
                 execResponse.exitCode = @as(i32, @intCast(code));
                 execResponse.message = @errorName(error.CommandFailed);
                 return execResponse;
@@ -505,6 +526,7 @@ pub fn binarySearch(comptime T: type, slice: T, element: anytype) i32 {
 
 pub fn checkExitCode(code: i32, message: []const u8) !void {
     if (code != 0) {
+        std.debug.print("Utils::checkExitCode()::received errorCode: {d} message: {s}\n", .{ code, message });
         @panic(message);
     }
 }
@@ -566,13 +588,49 @@ pub fn getPID(allocator: Allocator, bufLen: comptime_int, buf: *[bufLen]u8, proc
     return response;
 }
 
+/// if port is in use lsof -i:PORT returns 0 else 1
 pub fn checkIfPortInUse(allocator: Allocator, port: i32) !ExecCmdResponse {
-    var buf: [6]u8 = undefined;
-    const formattedPort = try formatString(6, &buf, ":{d}", .{port});
+    var execResponse = ExecCmdResponse{ .exitCode = 1, .message = "port is free" };
+    var buf: [16]u8 = undefined;
+    const formattedPort = try std.fmt.bufPrint(&buf, ":{d}", .{port});
     const args = [_][]const u8{
-        "lsof", "-i", formattedPort,
+        "lsof",
+        "-i",
+        formattedPort,
     };
-    return try executeCmds(3, allocator, &args);
+    printLn("Utils::checkIfPortInUse()::checking if port: {d} is in use", port);
+    var child = std.process.Child.init(&args, allocator);
+    try child.spawn();
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| {
+            if (code != 1) {
+                printLn("Utils::checkIfPortInUse()::The following command exited with error code: {d}", .{code});
+                execResponse.exitCode = @as(i32, @intCast(code));
+                execResponse.message = if (code == 0) "port is use" else "port is free";
+                return execResponse;
+            }
+        },
+        .Signal => |sig| {
+            printLn("Utils::checkIfPortInUse()::The following command returned signal: {any}", .{sig});
+            execResponse.exitCode = @as(i32, @intCast(sig));
+            execResponse.message = @errorName(error.Signal);
+            return execResponse;
+        },
+        .Unknown => |u| {
+            std.debug.print("Utils::checkIfPortInUse()::The following command returned signal: {any}\n", .{u});
+            execResponse.exitCode = @as(i32, @intCast(u));
+            execResponse.message = "Unknown";
+            return execResponse;
+        },
+        .Stopped => |s| {
+            printLn("Utils::executeCmds()::The following command returned signal: {any}", .{s});
+            execResponse.exitCode = @as(i32, @intCast(s));
+            execResponse.message = "Stopped";
+            return execResponse;
+        },
+    }
+    return execResponse;
 }
 
 pub fn deleteFileIfExists(cwd: std.fs.Dir, fileName: []const u8) !void {
@@ -613,47 +671,27 @@ pub fn getOsType() []const u8 {
     };
 }
 
-/// TODO: Figure out how to add format option to logger
-/// Currently format is breaking no idea why.
-/// Even with if (!isDigitFormat and isDigit) it still crashes even if isDigitFormat === false and isDigit is === true
 pub fn convertToString(
-    allocator: Allocator,
-    intBufLen: comptime_int,
-    intBuf: *[intBufLen]u8,
-    // messageBuf: *[1024]u8,
-    T: type,
+    bufLen: comptime_int,
+    buf: *[bufLen]u8,
+    TData: type,
     data: anytype,
-    message: []const u8,
+    comptime message: []const u8,
 ) !struct { data: ?[]const u8, message: []const u8 } {
-    const typeInfo = @typeInfo(T);
+    const typeInfo = @typeInfo(TData);
     if (typeInfo != .null) {
-        const isDigitFormat = std.mem.containsAtLeast(u8, message, 1, "{d}");
-        // const isStringFormat = std.mem.containsAtLeast(u8, message, 1, "{s}");
-        const isDigit = (typeInfo == .comptime_float or typeInfo == .comptime_int or typeInfo == .int or typeInfo == .float);
-        // print("BEFORE IF: isDigitFormat:{any} isStringFormat:{any} T:{any} typeInfo:{any} isDigit:{any}\n", .{
-        //     isDigitFormat,
-        //     isStringFormat,
-        //     T,
-        //     typeInfo,
-        //     isDigit,
-        // });
-        if (isDigit and !isDigitFormat) {
-            return .{ .data = try formatString(intBufLen, intBuf, "{d}", .{@as(T, data)}), .message = message };
-        } else if (typeInfo == .@"struct") {
-            var out = std.io.Writer.Allocating.init(allocator);
-            const writter = &out.writer;
-            defer out.deinit();
-            try std.json.Stringify.value(
-                @as(T, data),
-                .{ .emit_null_optional_fields = false },
-                writter,
-            );
-            return .{ .data = @as([]const u8, out.written()), .message = message };
+        if (typeInfo == .@"struct") {
+            const formattedMessage = try std.fmt.bufPrint(buf, message, data);
+            return .{ .message = @as([]const u8, formattedMessage), .data = null };
+        } else if (typeInfo == .comptime_int or typeInfo == .comptime_float) {
+            const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
+            return .{ .message = @as([]const u8, formattedMessage), .data = null };
         } else if (typeInfo == .pointer) {
             const isConst = typeInfo.pointer.is_const;
             const child = typeInfo.pointer.child;
-            if (isConst and (child == u8 or child == [data.len:0]u8 or T == *const [data.len:0]u8 or T == []const u8)) {
-                return .{ .data = @as([]const u8, data), .message = message };
+            if (isConst and (child == u8 or child == [data.len:0]u8 or TData == *const [data.len:0]u8 or TData == []const u8)) {
+                const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
+                return .{ .message = @as([]const u8, formattedMessage), .data = null };
             }
         }
     }
@@ -800,6 +838,17 @@ pub fn isNullOrUndefined(T: type) bool {
     } else {
         return false;
     }
+}
+
+pub fn writeAllToFile(file: fs.File, data: []const u8) !void {
+    var buff: [MAX_BUFF_SIZE * 8]u8 = undefined;
+    var fileWriter = file.writer(&buff);
+    const writer = &fileWriter.interface;
+    writer.writeAll(data) catch |err| {
+        printLn("Utils::writeAllToFile()::received error: {any} while trying to write deleteExampleUiDetached", err);
+        @panic(@errorName(err));
+    };
+    try writer.flush();
 }
 
 // pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {

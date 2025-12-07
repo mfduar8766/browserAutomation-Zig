@@ -45,10 +45,6 @@ pub fn GracefulShutDown() type {
             const ArgsType = @TypeOf(args);
             const info = @typeInfo(ArgsType);
 
-            // if (info != .Struct or info.@"struct".fields.len != 1) {
-            //     @compileError("applyFunction expected a 1-element tuple argument (e.g., .{my_arg}).");
-            // }
-
             // Manually extract the single field (it's currently *const T)
             const arg_const_ptr = @field(args, info.@"struct".fields[0].name);
 

@@ -17,9 +17,9 @@ pub const WaitOptions = struct {
     /// maxRetries - Number of attempts to PING chromeDriver to see if its up and running
     maxRetries: comptime_int = 3,
     /// driverWaitTime - Time to wait for chromeDriver exe to start is 10 seconds
-    driverWaitTime: comptime_int = 10_000_000_000,
+    driverWaitTime: comptime_int = 10000,
     /// reTryTimer - Amount of time before re tries expire is 15 seconds
-    reTryTimer: comptime_int = 15_000_000_000,
+    reTryTimer: comptime_int = 15000,
 };
 
 pub const SelectorTypes = enum {
