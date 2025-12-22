@@ -4,40 +4,28 @@ const Driver = @import("driver").Driver;
 const DriverTypes = @import("driver").DriverTypes;
 const Types = @import("common").Types;
 const FileManager = @import("common").FileManager;
-
+const Utils = @import("common").Utils;
 //zig build run -DchromeDriverPort=42069 -DchromeDriverExecPath=chromeDriver/chromedriver-mac-x64/chromedriver
-
-// const std = @import("std");
-
-// const Foo = struct {
-//     const Self = @This();
-
-//     pub fn init(allocator: std.mem.Allocator) !*Self {
-//         var foo = try allocator.create(Self); // Allocates on heap
-//         return foo;
-//     }
-// };
-
-// pub fn main() !void {
-//     var gpa = std.heap.page_allocator;
-//     var foo = try Foo.init(gpa); // Returns a pointer to Foo
-
-//     gpa.destroy(foo); // Must free the allocated memory
-// }
+const Config = @import("config");
+var Gs = @import("driver").GracefulShutDown().init();
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     const allocator = gpa.allocator();
-    // const T = Channels.Chan(u8);
-    // var chan = T.init(allocator);
-    // _ = try chan.recv();
+    var fm = try FileManager.init(allocator, false);
+    try fm.downloadDriverExecutable("firefox", "https://api.github.com/repos/mozilla/geckodriver/releases/latest");
 
-    var fm = try FileManager.init(allocator, true);
-    try fm.runSelectedTest("sampleTestThree_I.feature");
-    // var driver = try Driver.init(allocator, Types.ChromeDriverConfigOptions{
-    //     .chromeDriverExecPath = "/Users/matheusduarte/Desktop/browserAutomation-Zig/example/chromeDriver/chromedriver-mac-x64/chromedriver",
-    //     .chromeDriverPort = 4200,
-    // });
+    // const myStruct = struct {
+    //     pub fn call(prt: *Driver) !void {
+    //         try prt.launchWindow("");
+    //     }
+    // };
+    // var driver = try Driver.init(allocator, true, Types.DriverConfigOptions{});
+    // try driver.waitForDriver(DriverTypes.WaitOptions{});
+    // try Gs.spawn(myStruct.call, .{driver});
+    // Gs.wait();
+    // try driver.stopDriver();
+
     // try driver.waitForDriver(DriverTypes.WaitOptions{});
     // try driver.launchWindow("http://127.0.0.1:3000/");
     // const el = try driver.findElement(DriverTypes.SelectorTypes.ID_TAG, "APjFqb");
@@ -50,11 +38,10 @@ pub fn main() !void {
     // std.time.sleep(5_000_000_000);
     // try driver.stopDriver();
     defer {
-        fm.deinit();
+        // logger.deinit();
         // allocator.free(el);
         // driver.deinit();
-        // fileM.deInit();
-        // defer chan.deInit();
+        fm.deinit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
     }

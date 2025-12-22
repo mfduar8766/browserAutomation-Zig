@@ -1,15 +1,15 @@
 const std = @import("std");
 
-/// ChromeDriverConfigOptions - Options for setting up chromeDriver
-pub const ChromeDriverConfigOptions = struct {
-    /// chromeDriverExecPath - Path to chromeDriver exe file
-    chromeDriverExecPath: ?[]const u8 = undefined,
+/// DriverConfigOptions - Options for setting up chromeDriver
+pub const DriverConfigOptions = struct {
+    /// driverExePath - Path to chromeDriver exe file
+    driverExePath: ?[]const u8 = undefined,
     /// chromeDriverPort - Port chromeDriver will run on
     chromeDriverPort: ?i32 = undefined,
-    /// chromeDriverVersion - Version of chromeDriver to use default is Stable
-    chromeDriverVersion: ?[]const u8 = "Stable",
-    /// chromeDriverOutFilePath - StdOut file for chromeDriver logs when running driver
-    chromeDriverOutFilePath: ?[]const u8 = undefined,
+    /// driverVersion - Version of chromeDriver to use default is Stable
+    driverVersion: ?[]const u8 = "Stable",
+    /// driverOutFilePath - StdOut file for chromeDriver logs when running driver
+    driverOutFilePath: ?[]const u8 = undefined,
 };
 
 /// WaitOptions - ChromeDriver options for wait for driver to start
@@ -17,9 +17,9 @@ pub const WaitOptions = struct {
     /// maxRetries - Number of attempts to PING chromeDriver to see if its up and running
     maxRetries: comptime_int = 3,
     /// driverWaitTime - Time to wait for chromeDriver exe to start is 10 seconds
-    driverWaitTime: comptime_int = 10_000_000_000,
+    driverWaitTime: comptime_int = 10000,
     /// reTryTimer - Amount of time before re tries expire is 15 seconds
-    reTryTimer: comptime_int = 15_000_000_000,
+    reTryTimer: comptime_int = 15000,
 };
 
 pub const SelectorTypes = enum {

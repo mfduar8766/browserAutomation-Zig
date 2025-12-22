@@ -18,8 +18,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const te2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
+    const cleanInstall = b.option(bool, "cleanInstall", "Run with a fresh install.") orelse false;
     const options = b.addOptions();
     options.addOption(bool, "te2e", te2e);
+    options.addOption(bool, "cleanInstall", cleanInstall);
 
     const exe = b.addExecutable(.{
         .name = "automation",
@@ -35,7 +37,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.addImport("common", common);
-    exe.root_module.addOptions("config", options);
+    // exe.root_module.addOptions("config", options);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

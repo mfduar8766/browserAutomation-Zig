@@ -1,16 +1,16 @@
 const std = @import("std");
 const Utils = @import("../utils/utils.zig");
 
-/// ChromeDriverConfigOptions - Options for setting up chromeDriver
-pub const ChromeDriverConfigOptions = struct {
-    /// chromeDriverExecPath - Path to chromeDriver exe file
-    chromeDriverExecPath: ?[]const u8 = null,
-    /// chromeDriverPort - Port chromeDriver will run on
-    chromeDriverPort: ?i32 = null,
-    /// chromeDriverVersion - Version of chromeDriver to use default is Stable
-    chromeDriverVersion: ?[]const u8 = "Stable",
-    /// chromeDriverOutFilePath - StdOut file for chromeDriver logs when running driver
-    chromeDriverOutFilePath: ?[]const u8 = null,
+/// DriverConfigOptions - Options for setting up chromeDriver
+pub const DriverConfigOptions = struct {
+    /// driverExePath - Path to chromeDriver exe file
+    driverExePath: ?[]const u8 = null,
+    /// driverPort - Port chromeDriver will run on
+    driverPort: ?i32 = null,
+    /// driverVersion - Version of chromeDriver to use default is Stable
+    driverVersion: ?[]const u8 = "Stable",
+    /// driverOutFilePath - StdOut file for driver logs when running driver
+    driverOutFilePath: ?[]const u8 = null,
 };
 
 pub const LogLevels = enum(u2) {
@@ -174,4 +174,80 @@ pub const FileExtensions = enum(u8) {
             else => "",
         };
     }
+};
+
+pub const FireFoxReleaseInfoResponse = struct {
+    url: []const u8,
+    assets_url: []const u8,
+    upload_url: []const u8,
+    html_url: []const u8,
+    id: u64,
+    author: ?User,
+    node_id: []const u8,
+    tag_name: []const u8,
+    target_commitish: []const u8,
+    name: []const u8,
+    draft: bool,
+    immutable: bool,
+    prerelease: bool,
+    created_at: []const u8,
+    updated_at: []const u8,
+    published_at: []const u8,
+    assets: []Asset,
+    tarball_url: []const u8,
+    zipball_url: []const u8,
+    body: []const u8,
+    reactions: ?Reactions,
+};
+
+const User = struct {
+    login: []const u8,
+    id: u64,
+    node_id: []const u8,
+    avatar_url: []const u8,
+    gravatar_id: []const u8,
+    url: []const u8,
+    html_url: []const u8,
+    followers_url: []const u8,
+    following_url: []const u8,
+    gists_url: []const u8,
+    starred_url: []const u8,
+    subscriptions_url: []const u8,
+    organizations_url: []const u8,
+    repos_url: []const u8,
+    events_url: []const u8,
+    received_events_url: []const u8,
+    type: []const u8,
+    user_view_type: []const u8,
+    site_admin: bool,
+};
+
+const Asset = struct {
+    url: []const u8,
+    id: u64,
+    node_id: []const u8,
+    name: []const u8,
+    label: ?[]const u8,
+    uploader: User,
+    content_type: []const u8,
+    state: []const u8,
+    size: u64,
+    digest: ?[]const u8,
+    download_count: u64,
+    created_at: []const u8,
+    updated_at: []const u8,
+    browser_download_url: []const u8,
+};
+
+const Reactions = struct {
+    url: []const u8,
+    total_count: u64,
+    @"+1": u64,
+    @"-1": u64,
+    laugh: u64,
+    hooray: u64,
+    confused: u64,
+    heart: u64,
+    rocket: u64,
+    eyes: u64,
 };

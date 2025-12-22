@@ -2,95 +2,58 @@ const std = @import("std");
 const http = std.http;
 const Client = std.http.Client;
 const Uri = std.Uri;
-const RequestOptions = std.http.Client.RequestOptions;
-const Types = @import("../types//types.zig");
+const Types = @import("../types/types.zig");
+const Utils = @import("../utils/utils.zig");
+const Logger = @import("../logger/logger.zig").Logger;
 
 pub const Http = struct {
     const Self = @This();
     const Allocator = std.mem.Allocator;
-    const ReqOptions = struct {
-        maxReaderSize: usize = 1024 * 8,
-    };
     allocator: Allocator,
     client: std.http.Client,
-    reqOpts: ReqOptions,
+    logger: *Logger = undefined,
 
-    pub fn init(allocator: std.mem.Allocator, reqOpts: ?ReqOptions) Self {
-        const client = Client{ .allocator = allocator };
-        var httpClient = Http{ .allocator = allocator, .client = client, .reqOpts = ReqOptions{} };
-        if (reqOpts) |op| {
-            httpClient.reqOpts.maxReaderSize = op.maxReaderSize;
-        }
-        return httpClient;
+    pub fn init(allocator: std.mem.Allocator, logger: *Logger) !Self {
+        const arena = std.heap.ArenaAllocator.init(allocator);
+        var clientRef = Client{ .allocator = allocator };
+        try Client.initDefaultProxies(&clientRef, arena.child_allocator);
+        return Self{
+            .allocator = allocator,
+            .client = clientRef,
+            .logger = logger,
+        };
     }
     pub fn deinit(self: *Self) void {
         self.client.deinit();
     }
-    pub fn get(self: *Self, url: []const u8, options: RequestOptions, maxReaderSize: ?usize) ![]u8 {
-        std.debug.print("Http::GET()::making request to: {s}\n", .{url});
-        const uri = try Uri.parse(url);
-        var req = try self.client.open(.GET, uri, options);
-        defer req.deinit();
-
-        try req.send();
-        try req.finish();
-        try req.wait();
-
-        std.debug.print("Http::GET()::statusCode: {d}, bodyLen: {?d}\n", .{ req.response.status, req.response.content_length });
-        if (req.response.status != http.Status.ok) {
+    pub fn makeRequest(
+        self: *Self,
+        requestURL: []const u8,
+        method: std.http.Method,
+        headers: std.http.Client.Request.Headers,
+        body: ?[]u8,
+    ) ![]const u8 {
+        try self.logger.info("Http::makeRequest()::making {s} request to {s}", .{ @tagName(method), requestURL });
+        if (body) |b| {
+            std.debug.print("BODY: {s}\n", .{b});
+        }
+        const uriStr = try Uri.parse(requestURL);
+        var resultBody = std.Io.Writer.Allocating.init(self.allocator);
+        defer resultBody.deinit();
+        const resultBodyWriter: *std.Io.Writer = &resultBody.writer;
+        const response = try self.client.fetch(.{
+            .location = .{ .uri = uriStr },
+            .headers = headers,
+            .method = method,
+            .response_writer = resultBodyWriter,
+            .payload = body,
+        });
+        if (response.status != .ok) {
+            try self.logger.err("Http::makeRequest()::statusCode:{s}", @tagName(response.status.class()));
             return http.Client.RequestError.NetworkUnreachable;
         }
-        var maxSize: usize = self.reqOpts.maxReaderSize;
-        if (maxReaderSize) |max| {
-            maxSize = max;
-        }
-        const body = try req.reader().readAllAlloc(self.allocator, maxSize);
-        return body;
-    }
-    pub fn post(self: *Self, url: []const u8, options: RequestOptions, payload: ?[]const u8, maxReaderSize: ?usize) ![]u8 {
-        std.debug.print("Http::POST()::making a POST request to: {s}\n", .{url});
-        const uriStr = try Uri.parse(url);
-        var req = try self.client.open(.POST, uriStr, options);
-        if (payload) |p| {
-            req.transfer_encoding = .{ .content_length = p.len };
-        }
-        defer req.deinit();
-        try req.send();
-        if (payload) |p| {
-            try req.writer().writeAll(p);
-        }
-        try req.finish();
-        try req.wait();
-        std.debug.print("Http::POST()::StatusCode: {d}, bodyLen :{?d}\n", .{ req.response.status, req.response.content_length });
-        if (req.response.status != http.Status.ok) {
-            std.debug.print("Http::POST()::received error:{s}\n", .{req.response.reason});
-        }
-        var maxSize: usize = self.reqOpts.maxReaderSize;
-        if (maxReaderSize) |max| {
-            maxSize = max;
-        }
-        const body = try req.reader().readAllAlloc(self.allocator, self.reqOpts.maxReaderSize);
-        return body;
-    }
-    pub fn delete(self: *Self, url: []const u8, options: RequestOptions, maxReaderSize: ?usize) ![]const u8 {
-        std.debug.print("Http::DELTE()::making request to: {s}\n", .{url});
-        const uri = try Uri.parse(url);
-        var req = try self.client.open(.DELETE, uri, options);
-        defer req.deinit();
-
-        try req.send();
-        try req.finish();
-        try req.wait();
-
-        std.debug.print("Http::GET()::statusCode: {d}, bodyLen: {?d}\n", .{ req.response.status, req.response.content_length });
-        if (req.response.status != http.Status.ok) {
-            return http.Client.RequestError.NetworkUnreachable;
-        }
-        var maxSize: usize = self.reqOpts.maxReaderSize;
-        if (maxReaderSize) |max| {
-            maxSize = max;
-        }
-        const body = try req.reader().readAllAlloc(self.allocator, maxSize);
-        return body;
+        const bodyData = resultBody.written();
+        try self.logger.info("Http::makeRequest()::received btypes: {d}", bodyData.len);
+        return @as([]const u8, try self.allocator.dupe(u8, bodyData));
     }
 };

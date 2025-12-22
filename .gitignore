@@ -12,3 +12,5 @@ zig-*
 *.env
 **.log
 **state.json
+**/fireFox
+**/gecko**

@@ -50,14 +50,14 @@ pub fn BufferedChan(comptime T: type, comptime bufSize: u8) type {
         pub fn init(alloc: std.mem.Allocator) Self {
             return Self{
                 .alloc = alloc,
-                .recvQ = std.ArrayList(*Receiver).init(alloc),
-                .sendQ = std.ArrayList(*Sender).init(alloc),
+                .recvQ = std.ArrayList(*Receiver).empty,
+                .sendQ = std.ArrayList(*Sender).empty,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.recvQ.deinit();
-            self.sendQ.deinit();
+            self.recvQ.deinit(self.alloc);
+            self.sendQ.deinit(self.alloc);
         }
 
         fn close(self: *Self) void {
@@ -121,7 +121,7 @@ pub fn BufferedChan(comptime T: type, comptime bufSize: u8) type {
             sender.mut.lock(); // cond.wait below will unlock it and wait until signal, then relock it
             defer sender.mut.unlock(); // unlocks the relock
 
-            try self.sendQ.append(&sender); // make visible to other threads
+            try self.sendQ.append(self.alloc, &sender); // make visible to other threads
             self.mut.unlock(); // allow all other threads to proceed. This thread is done reading/writing
 
             // now just wait for receiver to signal sender
@@ -174,7 +174,7 @@ pub fn BufferedChan(comptime T: type, comptime bufSize: u8) type {
             receiver.mut.lock();
             defer receiver.mut.unlock();
 
-            try self.recvQ.append(&receiver);
+            try self.recvQ.append(self.alloc, &receiver);
             self.mut.unlock();
 
             // now wait for sender to signal receiver

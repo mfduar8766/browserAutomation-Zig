@@ -20,7 +20,7 @@ pub const TestSuites = struct {
     const Self = @This();
     const testFolderName: []const u8 = "tests";
     // const testSuiteFileName: []const u8 = "tests.json";
-    const stateFileName: []const u8 = "state.json";
+    // const stateFileName: []const u8 = "state.json";
     const folder: []const u8 = "folder";
     const file: []const u8 = "file";
     allocator: std.mem.Allocator,
@@ -50,7 +50,6 @@ pub const TestSuites = struct {
         return testSuites;
     }
     pub fn deinit(self: *Self) void {
-        std.debug.print("DEINIT TESTSUITES\n", .{});
         // self.allocator.destroy(self.state);
         if (self.fileTree != null) {
             self.fileTree.?.deinit();
@@ -181,10 +180,16 @@ pub const TestSuites = struct {
                             fullPath_heap,
                         ),
                     );
-                    std.debug.print("  [Inserted Dir]: Name: {s}, Path: {s}\n", .{ newChildNode.value.name, newChildNode.value.path });
+                    std.debug.print("  [Inserted Dir]: Name: {s}, Path: {s}\n", .{
+                        newChildNode.value.name,
+                        newChildNode.value.path,
+                    });
 
                     // 2. Open the subdirectory
-                    var sub_dir = try dir.openDir(entry.name, .{});
+                    var sub_dir = try dir.openDir(entry.name, .{
+                        .access_sub_paths = true,
+                        .iterate = true,
+                    });
                     defer sub_dir.close();
 
                     // 3. Recurse, passing the newly inserted node as the next parent

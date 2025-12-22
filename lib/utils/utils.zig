@@ -8,6 +8,7 @@ const Types = @import("../types/types.zig");
 const process = std.process;
 const print = std.debug.print;
 const builtIn = @import("builtin");
+const posix = std.posix;
 
 pub const Errors = error{
     FileNotFound,
@@ -31,6 +32,45 @@ pub const Errors = error{
     EnvironmentVariableNotFound,
     SegmentationFault,
     OutOfMemory,
+    WriteFailed,
+    PermissionDenied,
+    Unseekable,
+    SharingViolation,
+    PathAlreadyExists,
+    PipeBusy,
+    NoDevice,
+    NameTooLong,
+    InvalidUtf8,
+    InvalidWtf8,
+    BadPathName,
+    NetworkNotFound,
+    AntivirusInterference,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    FileTooBig,
+    NoSpaceLeft,
+    NotDir,
+    DeviceBusy,
+    FileLocksNotSupported,
+    FileBusy,
+    DiskQuota,
+    InvalidArgument,
+    NotOpenForWriting,
+    MessageTooBig,
+    ReadOnlyFileSystem,
+    FileSystem,
+    CurrentWorkingDirectoryUnlinked,
+    InvalidBatchScriptArg,
+    InvalidExe,
+    ResourceLimitReached,
+    InvalidUserId,
+    ProcessAlreadyExec,
+    InvalidProcessGroupId,
+    InvalidName,
+    InvalidHandle,
+    WaitAbandoned,
+    WaitTimeOut,
 };
 
 pub const MAX_BUFF_SIZE = 1024;
@@ -167,54 +207,25 @@ pub fn makeDirPath(cwd: std.fs.Dir, dirPath: []const u8) Result {
 pub fn fileExistsInDir(dir: fs.Dir, fileName: []const u8) !bool {
     var itter = dir.iterate();
     var exists = false;
-    while (itter.next()) |entry| {
-        if (entry) |e| {
-            if (e.kind == fs.File.Kind.file and eql(u8, e.name, fileName)) {
-                exists = true;
-                break;
-            }
-            if (e.kind == fs.File.Kind.directory) {
-                const subDir = try dir.openDir(e.name, .{ .access_sub_paths = true, .iterate = true });
-                exists = try fileExistsInDir(subDir, fileName);
-            }
-        } else {
-            @panic("Utils::fileExistsInDir()::entry does not exist");
+    while (try itter.next()) |entry| {
+        if (eql(u8, entry.name, ".") or eql(u8, entry.name, "..")) continue;
+        switch (entry.kind) {
+            .file => {
+                if (eql(u8, entry.name, fileName)) {
+                    exists = true;
+                    break;
+                }
+            },
+            .directory => {
+                var sub_dir = try dir.openDir(entry.name, .{ .iterate = true, .access_sub_paths = true });
+                defer sub_dir.close();
+                exists = try fileExists(sub_dir, fileName);
+            },
+            else => {},
         }
-    } else |err| {
-        std.debug.print("Utils::fileExistsInDir()::err:{}\n", .{err});
     }
     return exists;
 }
-
-//TODO: Make this generic??
-// pub fn createFileName(
-//     bufLen: comptime_int,
-//     buf: *[bufLen]u8,
-//     comptime fmt: []const u8,
-//     args: anytype,
-//     extension: Types.FileExtensions,
-// ) ![]const u8 {
-//     const emptyTuple = .{};
-//     const combinedArgs = emptyTuple ++ args;
-//     return switch (extension) {
-//         Types.FileExtensions.TXT => {
-//             const txtExtension = combinedArgs ++ .{".txt"};
-//             return try formatString(bufLen, buf, fmt, txtExtension);
-//         },
-//         Types.FileExtensions.LOG => {
-//             const logExtension = combinedArgs ++ .{".log"};
-//             return try formatString(bufLen, buf, fmt, logExtension);
-//         },
-//         Types.FileExtensions.JPG => {
-//             const jPegExtension = combinedArgs ++ .{".jpg"};
-//             return try formatString(bufLen, buf, fmt, jPegExtension);
-//         },
-//         Types.FileExtensions.PNG => {
-//             const pngExtension = combinedArgs ++ .{".png"};
-//             return try formatString(bufLen, buf, fmt, pngExtension);
-//         },
-//     };
-// }
 
 pub fn createFileName(bufLen: comptime_int, buf: *[bufLen]u8, args: anytype, extension: Types.FileExtensions) ![]const u8 {
     return switch (extension) {
@@ -302,6 +313,18 @@ pub fn fileExists(cwd: std.fs.Dir, fileName: []const u8) std.fs.Dir.AccessError!
     return try cwd.access(fileName, .{});
 }
 
+pub fn fileExistsBool(cwd: std.fs.Dir, fileName: []const u8) bool {
+    cwd.access(fileName, .{}) catch |e| {
+        if (e == Errors.PathAlreadyExists) {
+            return true;
+        } else {
+            printLn("Utils::fileExistsBool()::received error: {s}", @errorName(e));
+            return false;
+        }
+    };
+    return true;
+}
+
 // TODO: come back to this
 pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, options: std.json.ParseOptions) !std.json.Parsed(T) {
     return try std.json.parseFromSlice(T, allocator, body, options);
@@ -319,6 +342,18 @@ pub fn stringify(allocator: Allocator, value: anytype, options: std.json.Stringi
 
 pub fn dirExists(cwd: std.fs.Dir, dirName: []const u8) std.fs.Dir.AccessError!void {
     return cwd.access(dirName, .{});
+}
+
+pub fn dirExistsBool(cwd: std.fs.Dir, dirName: []const u8) bool {
+    cwd.access(dirName, .{}) catch |e| {
+        if (e == Errors.PathAlreadyExists) {
+            return true;
+        } else {
+            printLn("Utils::dirExistsBool()::received error: {s}", @errorName(e));
+            return false;
+        }
+    };
+    return true;
 }
 
 pub fn makePath(dir: std.fs.Dir, dirName: []const u8) (std.fs.Dir.MakeError || std.fs.Dir.StatFileError)!void {
@@ -359,48 +394,68 @@ pub fn executeCmds(
     incomingFileName: []const u8,
 ) !ExecCmdResponse {
     var execResponse = ExecCmdResponse{};
-    var fileName: []const u8 = undefined;
     const outFileLog: []const u8 = "out";
-    const cleanUpFileName = if (incomingFileName.len >= 10) incomingFileName[2 .. incomingFileName.len - 3] else outFileLog;
-    printLn("Utils::executeCmds()::incomingFileName: {s}", cleanUpFileName);
-    const today = fromTimestamp(@intCast(time.timestamp()));
-    const max_len = 100;
-    var buf: [max_len]u8 = undefined;
-    var fmtFileBuf: [max_len]u8 = undefined;
-    fileName = createFileName(
-        max_len,
-        &buf,
-        try formatString(max_len, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
-            cleanUpFileName,
-            today.year,
-            today.month,
-            today.day,
-        }),
-        Types.FileExtensions.LOG,
-    ) catch |e| {
-        printLn("Utils::executeCmds()::err:{any}\n", .{@errorName(e)});
-        @panic("Utils::executeCmds()::error creating fileB=Name exiting program...\n");
-    };
-    try deleteFileIfExists(getCWD(), fileName);
-    const file = try getCWD().createFile(fileName, .{
-        .read = false,
-        .truncate = true,
-    });
-    try file.chmod(0o664); // 0o664 (rw-rw-r--) is safer than 777
-    //CRITICAL FIX: Close the file BEFORE the shell command runs.
-    file.close();
+    const cleanUpFileName = if (incomingFileName.len >= 10 and containsAtLeast(u8, incomingFileName, 1, ".")) incomingFileName[2 .. incomingFileName.len - 3] else outFileLog;
     const argv_slice = &args.*;
-    const full_command = try join(allocator, " ", argv_slice);
-    defer allocator.free(full_command);
-    const command_str = try std.fmt.allocPrint(allocator, "{s} > {s} 2>&1", .{ full_command, fileName });
-    defer allocator.free(command_str);
-    var child = std.process.Child.init(&[_][]const u8{ "/bin/bash", "-c", command_str }, allocator);
+    const fullCommand = try join(allocator, " ", argv_slice);
+    defer allocator.free(fullCommand);
+    printLn("Utils::executeCmds()::argsLen: {d}, incomingFileName: {s}, cleanUpFileName: {s}, fullCommand: {s}", .{
+        argsLen,
+        incomingFileName,
+        cleanUpFileName,
+        fullCommand,
+    });
+    var child: std.process.Child = undefined;
+    if (containsAtLeast(u8, fullCommand, 1, "chmod +x")) {
+        printLn("Utils::executeCmds()::running chmod +x", .{});
+        child = std.process.Child.init(args, allocator);
+    } else {
+        const today = fromTimestamp(@intCast(time.timestamp()));
+        var buf: [MAX_BUFF_SIZE]u8 = undefined;
+        var fmtFileBuf: [MAX_BUFF_SIZE]u8 = undefined;
+        const fileName = createFileName(
+            MAX_BUFF_SIZE,
+            &buf,
+            try formatString(MAX_BUFF_SIZE, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
+                cleanUpFileName,
+                today.year,
+                today.month,
+                today.day,
+            }),
+            Types.FileExtensions.LOG,
+        ) catch |e| {
+            printLn("Utils::executeCmds()::err:{s}\n", .{@errorName(e)});
+            @panic("Utils::executeCmds()::error creating fileName exiting program...\n");
+        };
+        try deleteFileIfExists(getCWD(), fileName);
+        const file = try getCWD().createFile(fileName, .{
+            .read = false,
+            .truncate = true,
+        });
+        try file.chmod(0o664); // 0o664 (rw-rw-r--) is safer than 777
+        file.close();
+        var commandStrBuf: [MAX_BUFF_SIZE]u8 = undefined;
+        const command_str = try formatStringAndCopy(allocator, MAX_BUFF_SIZE, &commandStrBuf, "{s} > {s} 2>&1", .{ fullCommand, fileName });
+        defer allocator.free(command_str);
+        const innerCmd = command_str;
+        var cmdBuf: [MAX_BUFF_SIZE]u8 = undefined;
+        const cmd = try std.fmt.bufPrint(&cmdBuf, "{s}", .{innerCmd});
+        std.debug.print("Utils::executeCmds()::running command:{s}\n", .{cmd});
+        child = std.process.Child.init(
+            &[_][]const u8{
+                "/bin/bash",
+                "-c",
+                cmd,
+            },
+            allocator,
+        );
+    }
     try child.spawn();
     const term = try child.wait();
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                printLn("Utils::executeCmds()::The following command exited with error code: {any}", .{code});
+                printLn("Utils::executeCmds()::The following command exited with error code: {d}", .{code});
                 execResponse.exitCode = @as(i32, @intCast(code));
                 execResponse.message = @errorName(error.CommandFailed);
                 return execResponse;
@@ -452,6 +507,7 @@ pub fn binarySearch(comptime T: type, slice: T, element: anytype) i32 {
 
 pub fn checkExitCode(code: i32, message: []const u8) !void {
     if (code != 0) {
+        std.debug.print("Utils::checkExitCode()::received errorCode: {d} message: {s}\n", .{ code, message });
         @panic(message);
     }
 }
@@ -513,13 +569,57 @@ pub fn getPID(allocator: Allocator, bufLen: comptime_int, buf: *[bufLen]u8, proc
     return response;
 }
 
-pub fn checkIfPortInUse(allocator: Allocator, port: i32) !ExecCmdResponse {
-    var buf: [6]u8 = undefined;
-    const formattedPort = try formatString(6, &buf, ":{d}", .{port});
-    const args = [_][]const u8{
-        "lsof", "-i", formattedPort,
-    };
-    return try executeCmds(3, allocator, &args);
+/// if port is in use lsof -i:PORT returns 0 else 1
+pub fn checkIfPortInUse(allocator: Allocator, port: ?i32, browser: ?[]const u8) !ExecCmdResponse {
+    var execResponse = ExecCmdResponse{ .exitCode = 1, .message = "port is free" };
+    var child: std.process.Child = undefined;
+    if (browser) |b| {
+        const args = [_][]const u8{ "lsof", "-i", "-c", b };
+        printLn("Utils::checkIfPortInUse()::checking if browser: {s} is available", .{b});
+        child = std.process.Child.init(&args, allocator);
+    }
+    if (port) |p| {
+        var buf: [16]u8 = undefined;
+        const formattedPort = try std.fmt.bufPrint(&buf, ":{d}", .{p});
+        const args = [_][]const u8{
+            "lsof",
+            "-i",
+            formattedPort,
+        };
+        printLn("Utils::checkIfPortInUse()::checking if port: {d} is in use", p);
+        child = std.process.Child.init(&args, allocator);
+    }
+    try child.spawn();
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| {
+            if (code != 1) {
+                printLn("Utils::checkIfPortInUse()::The following command exited with error code: {d}", .{code});
+                execResponse.exitCode = @as(i32, @intCast(code));
+                execResponse.message = if (code == 0) "port is use" else "port is free";
+                return execResponse;
+            }
+        },
+        .Signal => |sig| {
+            printLn("Utils::checkIfPortInUse()::The following command returned signal: {any}", .{sig});
+            execResponse.exitCode = @as(i32, @intCast(sig));
+            execResponse.message = @errorName(error.Signal);
+            return execResponse;
+        },
+        .Unknown => |u| {
+            std.debug.print("Utils::checkIfPortInUse()::The following command returned signal: {any}\n", .{u});
+            execResponse.exitCode = @as(i32, @intCast(u));
+            execResponse.message = "Unknown";
+            return execResponse;
+        },
+        .Stopped => |s| {
+            printLn("Utils::executeCmds()::The following command returned signal: {any}", .{s});
+            execResponse.exitCode = @as(i32, @intCast(s));
+            execResponse.message = "Stopped";
+            return execResponse;
+        },
+    }
+    return execResponse;
 }
 
 pub fn deleteFileIfExists(cwd: std.fs.Dir, fileName: []const u8) !void {
@@ -560,47 +660,30 @@ pub fn getOsType() []const u8 {
     };
 }
 
-/// TODO: Figure out how to add format option to logger
-/// Currently format is breaking no idea why.
-/// Even with if (!isDigitFormat and isDigit) it still crashes even if isDigitFormat === false and isDigit is === true
 pub fn convertToString(
-    allocator: Allocator,
-    intBufLen: comptime_int,
-    intBuf: *[intBufLen]u8,
-    // messageBuf: *[1024]u8,
-    T: type,
+    bufLen: comptime_int,
+    buf: *[bufLen]u8,
+    TData: type,
     data: anytype,
-    message: []const u8,
+    comptime message: []const u8,
 ) !struct { data: ?[]const u8, message: []const u8 } {
-    const typeInfo = @typeInfo(T);
+    const typeInfo = @typeInfo(TData);
     if (typeInfo != .null) {
-        const isDigitFormat = std.mem.containsAtLeast(u8, message, 1, "{d}");
-        // const isStringFormat = std.mem.containsAtLeast(u8, message, 1, "{s}");
-        const isDigit = (typeInfo == .comptime_float or typeInfo == .comptime_int or typeInfo == .int or typeInfo == .float);
-        // print("BEFORE IF: isDigitFormat:{any} isStringFormat:{any} T:{any} typeInfo:{any} isDigit:{any}\n", .{
-        //     isDigitFormat,
-        //     isStringFormat,
-        //     T,
-        //     typeInfo,
-        //     isDigit,
-        // });
-        if (isDigit and !isDigitFormat) {
-            return .{ .data = try formatString(intBufLen, intBuf, "{d}", .{@as(T, data)}), .message = message };
-        } else if (typeInfo == .@"struct") {
-            var out = std.io.Writer.Allocating.init(allocator);
-            const writter = &out.writer;
-            defer out.deinit();
-            try std.json.Stringify.value(
-                @as(T, data),
-                .{ .emit_null_optional_fields = false },
-                writter,
-            );
-            return .{ .data = @as([]const u8, out.written()), .message = message };
+        if (typeInfo == .@"struct") {
+            var jsonBuf: [MAX_BUFF_SIZE]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&jsonBuf);
+            const json = try stringify(fba.allocator(), data, .{ .emit_null_optional_fields = true });
+            const formattedMessage = try std.fmt.bufPrint(buf, message, .{json});
+            return .{ .message = @as([]const u8, formattedMessage), .data = null };
+        } else if (typeInfo == .comptime_int or typeInfo == .comptime_float or typeInfo == .int or typeInfo == .float or TData == usize) {
+            const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
+            return .{ .message = @as([]const u8, formattedMessage), .data = null };
         } else if (typeInfo == .pointer) {
             const isConst = typeInfo.pointer.is_const;
             const child = typeInfo.pointer.child;
-            if (isConst and (child == u8 or child == [data.len:0]u8 or T == *const [data.len:0]u8 or T == []const u8)) {
-                return .{ .data = @as([]const u8, data), .message = message };
+            if (isConst and (child == u8 or child == [data.len:0]u8 or TData == *const [data.len:0]u8 or TData == []const u8)) {
+                const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
+                return .{ .message = @as([]const u8, formattedMessage), .data = null };
             }
         }
     }
@@ -633,7 +716,8 @@ pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: us
 pub fn sleep(durrationMs: u64) void {
     const multiplier = @as(u64, @intFromFloat(1e6));
     const duration = durrationMs * multiplier;
-    time.sleep(duration);
+    // time.sleep(duration);
+    std.Thread.sleep(duration);
 }
 
 pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) Allocator.Error![]u8 {
@@ -669,13 +753,13 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
     defer allocator.free(file_path);
 
     fileExists(cwd, file_path) catch |e| {
-        printLn("Utils::getEnvVar()::received error {}", e);
+        printLn("Utils::getEnvVar()::env file does not exist {any} checking for env vars on system", e);
         if (e == Errors.FileNotFound) {
             return try std.process.getEnvVarOwned(allocator, key);
         }
     };
     const file = cwd.openFile(file_path, .{ .mode = .read_only }) catch |er| {
-        printLn("Utils::getEnvVar()::received error {}", er);
+        printLn("Utils::getEnvVar()::received error {any} trying to open file", er);
         return er;
     };
     defer file.close();
@@ -687,12 +771,15 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
     if (fileStat.size == 0) {
         return Errors.EmptyFile;
     }
+    const file_size = @as(usize, @intCast(fileStat.size));
+    const fileAllocBuff = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(fileAllocBuff);
+
     var buf_reader = io.bufferedReader(file.reader());
     var in_stream = buf_reader.reader();
-    var buf: [1024]u8 = undefined;
     var value: []const u8 = "";
-    var bytes: []u8 = undefined;
-    while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+    var envValueBytes: []u8 = undefined;
+    while (try in_stream.readUntilDelimiterOrEof(&fileAllocBuff, '\n')) |line| {
         if (startsWith(u8, @as([]const u8, line), key)) {
             const envValue = try splitAndJoinStr(
                 allocator,
@@ -703,13 +790,13 @@ pub fn getEnvValueByKey(allocator: Allocator, key: []const u8) ![]const u8 {
             defer allocator.free(envValue);
             if (envValue.len > 0) {
                 value = envValue[1];
-                bytes = try allocator.alloc(u8, value.len);
-                std.mem.copyForwards(u8, bytes, value);
+                envValueBytes = try allocator.alloc(u8, value.len);
+                std.mem.copyForwards(u8, envValueBytes, value);
                 break;
             }
         }
     }
-    return bytes;
+    return envValueBytes;
 }
 
 pub fn readAndParseFile(
@@ -744,71 +831,13 @@ pub fn isNullOrUndefined(T: type) bool {
     }
 }
 
-// pub fn indexOf(comptime{}_{}_{}.log T: type, arr: T, comptime T2: type, target: anytype) i32 {
-//     var index: i32 = -1;
-//     var left: usize = 0;
-//     const arrType = @as(@Type(@typeInfo(T)), arr);
-//     const targetTypeRef = @as(@Type(@typeInfo(T2)), target);
-//     var right: usize = arr.len - 1;
-//     while (left <= right) {
-//         index += 1;
-//         var mid = left + (right - left) / 2;
-//         const arrMid = @as(@Type(@typeInfo(T2)), arrType[mid]);
-//         if (eql(@Type(@typeInfo(T2)), arrMid, targetTypeRef)) {
-//             return @as(i32, mid);
-//         } else if (mid < index) {
-//             mid = mid + 1;
-//             left = mid;
-//         } else {
-//             mid = mid - 1;
-//             right = mid;
-//         }
-//     }
-//     return -1;
-// }
-
-// const txtExtension = combinedArgs ++ .{"txt"};
-// print("FFFFF: {any}\n", .{txtExtension});
-// const f = try formatString(bufLen, buf, fmt, txtExtension);
-// print("F: {s}\n", .{f});
-// return f;
-
-// const T = @TypeOf(args);
-// const typeInfo = @typeInfo(T);
-// print("TypeOf({})\n", .{T});
-// if (typeInfo == .Struct) {
-//     const fields = typeInfo.Struct.fields;
-//     // const F = .{};
-//     // const G = struct {};
-//     // const gFields = @typeInfo(@TypeOf(G)).Struct.fields;
-//     // const merge = fields ++ gFields;
-//     // const Y = @Type(.{ .Struct = .{
-//     //     .layout = .auto,
-//     //     .fields = fields ++ gFields,
-//     //     .is_tuple = false,
-//     //     .decls = &.{},
-//     // } });
-//     // print("Y: {any}\n", .{Y});
-
-//     comptime var array: [3]comptime_int = undefined;
-//     // var bufArrayList: [1024]u8 = undefined;
-//     // var fba = std.heap.FixedBufferAllocator.init(&bufArrayList);
-//     // const allocator = fba.allocator();
-//     // comptime var arrList = std.ArrayList(comptime_int).init(std.heap.page_allocator);
-//     // defer arrList.deinit();
-//     comptime var i = 0;
-//     inline for (fields) |field| {
-//         const dvalue_aligned: *align(field.alignment) const anyopaque = @alignCast(field.default_value.?);
-//         const value = @as(*const field.type, @ptrCast(dvalue_aligned)).*;
-//         std.log.info("name: {s} default value: {}", .{ field.name, value });
-//         array[i] = value;
-//         i += 1;
-//         // try arrList.append(value);
-//         // const new_tuple = F ++ .{ value, ".txt" };
-//         // print("S: {any}\n", .{new_tuple});
-//     }
-//     const slice = &array;
-//     print("ITEMS: {s}\n", .{slice});
-//     print("TUPLE: {any}\n", .{std.meta.Tuple(slice)});
-//     return "";
-// }
+pub fn writeAllToFile(file: fs.File, data: []const u8) !void {
+    var buff: [MAX_BUFF_SIZE * 8]u8 = undefined;
+    var fileWriter = file.writer(&buff);
+    const writer = &fileWriter.interface;
+    writer.writeAll(data) catch |err| {
+        printLn("Utils::writeAllToFile()::received error: {any} while trying to write deleteExampleUiDetached", err);
+        @panic(@errorName(err));
+    };
+    try writer.flush();
+}

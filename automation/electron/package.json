@@ -22,8 +22,12 @@
     "directories": {
       "output": "dist"
     },
-    "mac": {
-      "target": "default"
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ]
     }
   }
 }
