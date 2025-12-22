@@ -197,10 +197,10 @@ pub const Driver = struct {
     const applicationJSON: []const u8 = "application/json";
     comptime chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}",
     comptime EXAMPLE_URL: []const u8 = "http://127.0.0.1:3000",
-    chromeDriverPort: i32 = 4200,
+    driverPort: i32 = 4200,
     allocator: Allocator,
-    chromeDriverVersion: []const u8 = Types.ChromeDriverVersion.getDriverVersion(0),
-    chromeDriverExecPath: []const u8 = "",
+    driverVersion: []const u8 = Types.ChromeDriverVersion.getDriverVersion(0),
+    driverExePath: []const u8 = "",
     sessionID: []const u8 = "",
     isDriverRunning: bool = false,
     fileManager: *FileManager = undefined,
@@ -211,13 +211,13 @@ pub const Driver = struct {
     isHeadlessMode: bool = false,
     runExampleUI: bool = false,
 
-    pub fn init(allocator: Allocator, runExampleUI: bool, options: ?Types.ChromeDriverConfigOptions) !*Self {
+    pub fn init(allocator: Allocator, runExampleUI: bool, options: ?Types.DriverConfigOptions) !*Self {
         const driverPrt = try allocator.create(Self);
         driverPrt.* = Self{
             .allocator = allocator,
             .runExampleUI = runExampleUI,
         };
-        driverPrt.fileManager = FileManager.init(allocator, Config.te2e) catch |e| {
+        driverPrt.fileManager = FileManager.init(allocator, Config.te2e, Config.cleanInstall) catch |e| {
             std.debug.print("Driver::init()::received error: {s}\n", .{@errorName(e)});
             @panic("Driver::init()::failed to init driver, exiting program...");
         };
@@ -262,44 +262,24 @@ pub const Driver = struct {
         };
     }
     pub fn closeWindow(self: *Self) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
+        const response = try self.makeDriverRequests(
             RequestUrlPaths.CLOSE_WINDOW,
-            bufLen,
-            &urlBuf,
-            null,
-        );
-        const headers = std.http.Client.Request.Headers{};
-        const res = try req.makeRequest(
-            urlApi,
             .DELETE,
-            headers,
+            std.http.Client.Request.Headers{},
+            null,
             null,
         );
-        defer self.allocator.free(res);
+        defer self.allocator.free(response);
         self.isDriverRunning = false;
         try self.fileManager.executeShFiles(self.fileManager.files.deleteDriverDetachedSh);
     }
     ///deleteSession - Used to delete current session of chromeDriver and close window
     pub fn deleteSession(self: *Self) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
+        const res = try self.makeDriverRequests(
             RequestUrlPaths.DELETE_SESSION,
-            bufLen,
-            &urlBuf,
-            null,
-        );
-        const headers = std.http.Client.Request.Headers{};
-        const res = try req.makeRequest(
-            urlApi,
             .DELETE,
-            headers,
+            std.http.Client.Request.Headers{},
+            null,
             null,
         );
         defer self.allocator.free(res);
@@ -312,16 +292,6 @@ pub const Driver = struct {
     ///
     /// Find by css, xpath, tagName, id.
     pub fn findElement(self: *Self, selectorType: DriverTypes.SelectorTypes, comptime selectorName: []const u8) ![]const u8 {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.FIND_ELEMENT_BY_SELECTOR,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
@@ -332,14 +302,15 @@ pub const Driver = struct {
         );
         defer allocator.free(body);
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.FIND_ELEMENT_BY_SELECTOR,
             .POST,
             headers,
             body,
+            null,
         );
         defer self.allocator.free(res);
-        const parsed = try std.json.parseFromSlice(FindElementBySelectorResponse, self.allocator, res, .{
+        const parsed = try Utils.parseJSON(FindElementBySelectorResponse, self.allocator, res, .{
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
@@ -348,19 +319,9 @@ pub const Driver = struct {
         return @as([]const u8, bytes);
     }
     pub fn click(self: *Self, elementID: []const u8) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.CLICK_ELEMENT,
-            bufLen,
-            &urlBuf,
-            elementID,
-        );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.CLICK_ELEMENT,
             .POST,
             headers,
             null,
@@ -372,26 +333,16 @@ pub const Driver = struct {
     ///
     ///Caller must free the memory,
     pub fn getElementText(self: *Self, elementID: []const u8) ![]const u8 {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.GET_ELEMENT_TEXT,
-            bufLen,
-            &urlBuf,
-            elementID,
-        );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.GET_ELEMENT_TEXT,
             .GET,
             headers,
             null,
             elementID,
         );
         defer self.allocator.free(res);
-        const parsed = try std.json.parseFromSlice(GetElementTextResponse, self.allocator, res, .{
+        const parsed = try Utils.parseJSON(GetElementTextResponse, self.allocator, res, .{
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
@@ -400,25 +351,16 @@ pub const Driver = struct {
         return @as([]const u8, bytes);
     }
     pub fn screenShot(self: *Self, fileName: ?[]const u8) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.SCREEN_SHOT,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.SCREEN_SHOT,
             .GET,
             headers,
             null,
+            null,
         );
         defer self.allocator.free(res);
-        const parsed = try std.json.parseFromSlice(ScreenShotResponse, self.allocator, res, .{
+        const parsed = try Utils.parseJSON(ScreenShotResponse, self.allocator, res, .{
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
@@ -462,7 +404,7 @@ pub const Driver = struct {
                 null,
                 null,
             );
-            const parsed = try std.json.parseFromSlice(ChromeDriverStatusResponse, self.allocator, res, .{
+            const parsed = try Utils.parseJSON(ChromeDriverStatusResponse, self.allocator, res, .{
                 .ignore_unknown_fields = true,
             });
             if (parsed.value.value.ready) {
@@ -484,24 +426,14 @@ pub const Driver = struct {
         const slice = try list.toOwnedSlice(self.allocator);
         defer self.allocator.free(slice);
         const payload = KeyInValuePayload{ .text = input, .value = slice };
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.KEY_IN_VALUE,
-            bufLen,
-            &urlBuf,
-            elementID,
-        );
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
         const body = try Utils.stringify(allocator, payload, .{});
         defer allocator.free(body);
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.KEY_IN_VALUE,
             .POST,
             headers,
             body,
@@ -513,61 +445,34 @@ pub const Driver = struct {
         const body: []const u8 =
             \\{"actions":[{"type":"key","id":"keyboard","actions":[{"type":"keyDown","value":"\uE007"}]}]}
         ;
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.PRESS_ENTER,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.PRESS_ENTER,
             .POST,
             headers,
             @constCast(body),
+            null,
         );
         defer self.allocator.free(res);
     }
     pub fn goBack(self: *Self) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.GO_BACK,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.GO_BACK,
             .POST,
             headers,
+            null,
             null,
         );
         defer self.allocator.free(res);
     }
     pub fn goForward(self: *Self) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.GO_FORWARD,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.GO_FORWARD,
             .POST,
             headers,
+            null,
             null,
         );
         defer self.allocator.free(res);
@@ -584,16 +489,6 @@ pub const Driver = struct {
         }
     }
     fn setWindowSize(self: *Self) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.SET_WINDOW_RECT,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
@@ -605,25 +500,16 @@ pub const Driver = struct {
         );
         defer allocator.free(body);
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.SET_WINDOW_RECT,
             .POST,
             headers,
             body,
+            null,
         );
         defer self.allocator.free(res);
     }
     fn setPosition(self: *Self) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.SET_POSITION,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         const allocator = fba.allocator();
@@ -635,25 +521,16 @@ pub const Driver = struct {
         );
         defer allocator.free(body);
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const res = try req.makeRequest(
-            urlApi,
+        const res = try self.makeDriverRequests(
+            RequestUrlPaths.SET_POSITION,
             .POST,
             headers,
             body,
+            null,
         );
         defer self.allocator.free(res);
     }
     fn getSessionID(self: *Self) !void {
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.NEW_SESSION,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var chromeDriverCapabilities = Types.ChromeCapabilities{};
@@ -670,13 +547,14 @@ pub const Driver = struct {
             writter,
         );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const body = try req.makeRequest(
-            urlApi,
+        const body = try self.makeDriverRequests(
+            RequestUrlPaths.NEW_SESSION,
             .POST,
             headers,
             out.written(),
+            null,
         );
-        const parsed = try std.json.parseFromSlice(ChromeDriverSessionResponse, self.allocator, body, .{
+        const parsed = try Utils.parseJSON(ChromeDriverSessionResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
         });
         if (parsed.value.value.@"error") |e| {
@@ -700,16 +578,6 @@ pub const Driver = struct {
     }
     fn navigateToSite(self: *Self, url: []const u8) !void {
         try self.log(Types.LogLevels.INFO, "Driver::navigateToSite()::navigating to: {s}", url);
-        var req = try Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
-        const bufLen = 250;
-        var urlBuf: [bufLen]u8 = undefined;
-        const urlApi = try self.getRequestUrl(
-            RequestUrlPaths.NAVIGATE_TO,
-            bufLen,
-            &urlBuf,
-            null,
-        );
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var out = std.io.Writer.Allocating.init(fba.allocator());
@@ -721,34 +589,35 @@ pub const Driver = struct {
             writter,
         );
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
-        const body = try req.makeRequest(
-            urlApi,
+        const body = try self.makeDriverRequests(
+            RequestUrlPaths.NAVIGATE_TO,
             .POST,
             headers,
             out.written(),
+            null,
         );
         defer self.allocator.free(body);
     }
-    fn checkOptions(self: *Self, options: ?Types.ChromeDriverConfigOptions) !void {
+    fn checkOptions(self: *Self, options: ?Types.DriverConfigOptions) !void {
         if (options == null) {
             @panic("Driver::checkOptions()::received null or undefined for options. Please pass in options object to prceed.");
         }
         if (options) |op| {
-            if (op.chromeDriverPort) |port| {
+            if (op.driverPort) |port| {
                 const code = try Utils.checkIfPortInUse(self.allocator, port);
                 if (code.exitCode == 0) {
                     try self.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port:{d} is currently in use.", port);
                     @panic("Driver::checkoptins()::port is in use, exiting program...");
                 }
-                self.chromeDriverPort = port;
+                self.driverPort = port;
             } else {
-                const code = try Utils.checkIfPortInUse(self.allocator, self.chromeDriverPort, null);
+                const code = try Utils.checkIfPortInUse(self.allocator, self.driverPort, null);
                 if (code.exitCode == 0) {
-                    try self.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port:{d} is currently in use.", self.chromeDriverPort);
+                    try self.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port:{d} is currently in use.", self.driverPort);
                     @panic("Driver::checkoptins()::port is in use, exiting program...");
                 }
             }
-            if (op.chromeDriverVersion) |version| {
+            if (op.driverVersion) |version| {
                 const stable = Types.ChromeDriverVersion.getDriverVersion(0);
                 const beta = Types.ChromeDriverVersion.getDriverVersion(1);
                 const dev = Types.ChromeDriverVersion.getDriverVersion(2);
@@ -756,22 +625,23 @@ pub const Driver = struct {
                 if (!isCorrecrtVersion) {
                     @panic("Driver::checkOptions()::incorrect driver version specefied. Expected (Stable, Beta, Dev)");
                 } else {
-                    self.chromeDriverVersion = op.chromeDriverVersion.?;
+                    self.driverVersion = op.driverVersion.?;
                 }
             }
-            if (op.chromeDriverExecPath) |path| {
-                if (path.len > 0) self.chromeDriverExecPath = path;
+            if (op.driverExePath) |path| {
+                if (path.len > 0) self.driverExePath = path;
             }
-            if (op.chromeDriverExecPath == null or op.chromeDriverExecPath.?.len == 0) {
+            if (op.driverExePath == null or op.driverExePath.?.len == 0) {
                 try self.log(Types.LogLevels.INFO, "Driver::init()::cannot find driver exe. Downloading latest version", null);
-                const isFireFox = try Utils.checkIfPortInUse(self.allocator, null, "firefox");
-                if (isFireFox.exitCode == 0) {
+                const isFireFox = try self.fileManager.checkForBrowsers();
+                if (isFireFox == 0) {
+                    self.fileManager.setIsFireFox();
                     try self.fileManager.downloadDriverExecutable("firefox", GECKO_DRIVER_URL);
                 } else {
-                    try self.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
+                    try self.fileManager.downloadDriverExecutable("chrome", CHROME_DRIVER_DOWNLOAD_URL);
                 }
             }
-            try self.fileManager.createFiles(op, self.chromeDriverPort);
+            try self.fileManager.createFiles(op, self.driverPort);
         }
     }
     fn makeDriverRequests(
@@ -809,33 +679,33 @@ pub const Driver = struct {
         if (chromeRequests == RequestUrlPaths.STATUS) {
             const chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}";
             return try Utils.formatString(bufLen, buf, chromeDriverRestURL, .{
-                self.chromeDriverPort,
+                self.driverPort,
                 "status",
             });
         }
         const chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}";
         return switch (chromeRequests) {
             RequestUrlPaths.NEW_SESSION => try Utils.formatString(bufLen, buf, chromeDriverRestURL, .{
-                self.chromeDriverPort,
+                self.driverPort,
                 "session",
             }),
             RequestUrlPaths.NAVIGATE_TO => {
                 const newPath = chromeDriverRestURL ++ "/{s}" ++ "/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "url",
                 });
             },
             RequestUrlPaths.STATUS => try Utils.formatString(bufLen, buf, chromeDriverRestURL, .{
-                self.chromeDriverPort,
+                self.driverPort,
                 "status",
             }),
             RequestUrlPaths.CLOSE_WINDOW => {
                 const newPath = chromeDriverRestURL ++ "/{s}" ++ "/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "window",
@@ -844,7 +714,7 @@ pub const Driver = struct {
             RequestUrlPaths.DELETE_SESSION => {
                 const newPath = chromeDriverRestURL ++ "/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                 });
@@ -852,7 +722,7 @@ pub const Driver = struct {
             RequestUrlPaths.FIND_ELEMENT_BY_SELECTOR => {
                 const newPath = chromeDriverRestURL ++ "/{s}/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "element",
@@ -865,7 +735,7 @@ pub const Driver = struct {
                     id = elID;
                 }
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "element",
@@ -880,7 +750,7 @@ pub const Driver = struct {
                     id = elID;
                 }
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "element",
@@ -891,7 +761,7 @@ pub const Driver = struct {
             RequestUrlPaths.SCREEN_SHOT => {
                 const newPath = chromeDriverRestURL ++ "/{s}/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "screenshot",
@@ -900,7 +770,7 @@ pub const Driver = struct {
             RequestUrlPaths.SET_WINDOW_RECT => {
                 const newPath = chromeDriverRestURL ++ "/{s}/{s}/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "window",
@@ -914,7 +784,7 @@ pub const Driver = struct {
                     id = elID;
                 }
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "element",
@@ -925,7 +795,7 @@ pub const Driver = struct {
             RequestUrlPaths.PRESS_ENTER => {
                 const newPath = chromeDriverRestURL ++ "/{s}/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "actions",
@@ -934,7 +804,7 @@ pub const Driver = struct {
             RequestUrlPaths.GO_BACK => {
                 const newPath = chromeDriverRestURL ++ "/{s}/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "back",
@@ -943,7 +813,7 @@ pub const Driver = struct {
             RequestUrlPaths.GO_FORWARD => {
                 const newPath = chromeDriverRestURL ++ "/{s}/{s}";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                     "forward",
@@ -952,7 +822,7 @@ pub const Driver = struct {
             RequestUrlPaths.SET_POSITION => {
                 const newPath = chromeDriverRestURL ++ "/{s}/window/rect";
                 return try Utils.formatString(bufLen, buf, newPath, .{
-                    self.chromeDriverPort,
+                    self.driverPort,
                     "session",
                     self.sessionID,
                 });

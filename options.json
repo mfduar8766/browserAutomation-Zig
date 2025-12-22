@@ -1,7 +1,7 @@
 {
-  "chromeDriverExecPath": "",
+  "driverExePath": "",
   "chromeDriverPort": 42069,
-  "chromeDriverVersion": "",
+  "driverVersion": "",
   "args": [],
   "logFilePath": ""
 }

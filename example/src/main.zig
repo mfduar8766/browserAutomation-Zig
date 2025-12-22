@@ -20,7 +20,7 @@ pub fn main() !void {
     //         try prt.launchWindow("");
     //     }
     // };
-    // var driver = try Driver.init(allocator, true, Types.ChromeDriverConfigOptions{});
+    // var driver = try Driver.init(allocator, true, Types.DriverConfigOptions{});
     // try driver.waitForDriver(DriverTypes.WaitOptions{});
     // try Gs.spawn(myStruct.call, .{driver});
     // Gs.wait();

@@ -411,13 +411,12 @@ pub fn executeCmds(
         child = std.process.Child.init(args, allocator);
     } else {
         const today = fromTimestamp(@intCast(time.timestamp()));
-        const max_len = 100;
-        var buf: [max_len]u8 = undefined;
-        var fmtFileBuf: [max_len]u8 = undefined;
+        var buf: [MAX_BUFF_SIZE]u8 = undefined;
+        var fmtFileBuf: [MAX_BUFF_SIZE]u8 = undefined;
         const fileName = createFileName(
-            max_len,
+            MAX_BUFF_SIZE,
             &buf,
-            try formatString(max_len, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
+            try formatString(MAX_BUFF_SIZE, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
                 cleanUpFileName,
                 today.year,
                 today.month,
@@ -435,11 +434,11 @@ pub fn executeCmds(
         });
         try file.chmod(0o664); // 0o664 (rw-rw-r--) is safer than 777
         file.close();
-        var commandStrBuf: [100]u8 = undefined;
-        const command_str = try formatStringAndCopy(allocator, 100, &commandStrBuf, "{s} > {s} 2>&1", .{ fullCommand, fileName });
+        var commandStrBuf: [MAX_BUFF_SIZE]u8 = undefined;
+        const command_str = try formatStringAndCopy(allocator, MAX_BUFF_SIZE, &commandStrBuf, "{s} > {s} 2>&1", .{ fullCommand, fileName });
         defer allocator.free(command_str);
         const innerCmd = command_str;
-        var cmdBuf: [200]u8 = undefined;
+        var cmdBuf: [MAX_BUFF_SIZE]u8 = undefined;
         const cmd = try std.fmt.bufPrint(&cmdBuf, "{s}", .{innerCmd});
         std.debug.print("Utils::executeCmds()::running command:{s}\n", .{cmd});
         child = std.process.Child.init(
@@ -671,7 +670,10 @@ pub fn convertToString(
     const typeInfo = @typeInfo(TData);
     if (typeInfo != .null) {
         if (typeInfo == .@"struct") {
-            const formattedMessage = try std.fmt.bufPrint(buf, message, data);
+            var jsonBuf: [MAX_BUFF_SIZE]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&jsonBuf);
+            const json = try stringify(fba.allocator(), data, .{ .emit_null_optional_fields = true });
+            const formattedMessage = try std.fmt.bufPrint(buf, message, .{json});
             return .{ .message = @as([]const u8, formattedMessage), .data = null };
         } else if (typeInfo == .comptime_int or typeInfo == .comptime_float or typeInfo == .int or typeInfo == .float or TData == usize) {
             const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});

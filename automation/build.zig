@@ -18,8 +18,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const te2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
+    const cleanInstall = b.option(bool, "cleanInstall", "Run with a fresh install.") orelse false;
     const options = b.addOptions();
     options.addOption(bool, "te2e", te2e);
+    options.addOption(bool, "cleanInstall", cleanInstall);
 
     const exe = b.addExecutable(.{
         .name = "automation",

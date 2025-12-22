@@ -11,9 +11,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const te2e = b.option(bool, "te2e", "Run E2e Testing Mode") orelse false;
     const optimizationMode = b.option([]const u8, "releaseType", "Release optimization mode") orelse "3";
+    const cleanInstall = b.option(bool, "cleanInstall", "Run with a fresh install.") orelse false;
     const options = b.addOptions();
     options.addOption(bool, "te2e", te2e);
     options.addOption([]const u8, "releaseType", optimizationMode);
+    options.addOption(bool, "cleanInstall", cleanInstall);
 
     var defaultOptimization = std.builtin.OptimizeMode.ReleaseSafe;
     if (std.mem.eql(u8, optimizationMode, @tagName(std.builtin.OptimizeMode.Debug))) {
