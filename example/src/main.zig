@@ -12,19 +12,19 @@ var Gs = @import("driver").GracefulShutDown().init();
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     const allocator = gpa.allocator();
-    const myStruct = struct {
-        pub fn call(prt: *Driver) !void {
-            try prt.launchWindow("");
-        }
-    };
-    var driver = try Driver.init(allocator, true, Types.ChromeDriverConfigOptions{
-        .chromeDriverExecPath = "",
-        .chromeDriverPort = 42069,
-    });
-    try driver.waitForDriver(DriverTypes.WaitOptions{});
-    try Gs.spawn(myStruct.call, .{driver});
-    Gs.wait();
-    try driver.stopDriver();
+    var fm = try FileManager.init(allocator, false);
+    try fm.downloadDriverExecutable("firefox", "https://api.github.com/repos/mozilla/geckodriver/releases/latest");
+
+    // const myStruct = struct {
+    //     pub fn call(prt: *Driver) !void {
+    //         try prt.launchWindow("");
+    //     }
+    // };
+    // var driver = try Driver.init(allocator, true, Types.ChromeDriverConfigOptions{});
+    // try driver.waitForDriver(DriverTypes.WaitOptions{});
+    // try Gs.spawn(myStruct.call, .{driver});
+    // Gs.wait();
+    // try driver.stopDriver();
 
     // try driver.waitForDriver(DriverTypes.WaitOptions{});
     // try driver.launchWindow("http://127.0.0.1:3000/");
@@ -40,7 +40,8 @@ pub fn main() !void {
     defer {
         // logger.deinit();
         // allocator.free(el);
-        driver.deinit();
+        // driver.deinit();
+        fm.deinit();
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Main::main()::leaking memory exiting program...");
     }

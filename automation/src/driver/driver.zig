@@ -9,7 +9,6 @@ const FileManager = @import("common").FileManager;
 const FileActions = @import("common").Actions;
 const Config = @import("config");
 const AllocatingWriter = std.io.Writer.Allocating;
-const Gs = @import("../main.zig").GracefulShutDown();
 
 const RequestUrlPaths = enum {
     NEW_SESSION,
@@ -194,8 +193,10 @@ pub const Driver = struct {
     const Self = @This();
     const Allocator = std.mem.Allocator;
     const CHROME_DRIVER_DOWNLOAD_URL: []const u8 = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json";
+    const GECKO_DRIVER_URL: []const u8 = "https://api.github.com/repos/mozilla/geckodriver/releases/latest";
     const applicationJSON: []const u8 = "application/json";
     comptime chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}",
+    comptime EXAMPLE_URL: []const u8 = "http://127.0.0.1:3000",
     chromeDriverPort: i32 = 4200,
     allocator: Allocator,
     chromeDriverVersion: []const u8 = Types.ChromeDriverVersion.getDriverVersion(0),
@@ -221,13 +222,7 @@ pub const Driver = struct {
             @panic("Driver::init()::failed to init driver, exiting program...");
         };
         try driverPrt.checkOptions(options);
-        // if (driverPrt.chromeDriverExecPath.len == 0) {
-        //     try driverPrt.fileManager.log(Types.LogLevels.INFO, "Driver::init()::cannot find chromeDriver exe. Downloading latest version", null);
-        //     try driverPrt.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
-        // }
-        // if (!driverPrt.runExampleUI) {
-        //     try driverPrt.fileManager.executeFiles(driverPrt.fileManager.setShFileByOs(FileActions.startDriverDetached), false);
-        // }
+        try driverPrt.fileManager.executeFiles(driverPrt.fileManager.setShFileByOs(FileActions.startDriverDetached), false);
         return driverPrt;
     }
     pub fn deinit(self: *Self) void {
@@ -251,6 +246,8 @@ pub const Driver = struct {
     ///var driver = Driver.init(allocator, false, options);
     ///
     ///If wanting to run the exampleUI for a quick test pass in an empty URL string
+    /// The example UI will run on http://127..0.1:3000
+    ///
     ///try driver.launchWindow("http://google.com");
     pub fn launchWindow(self: *Self, url: []const u8) !void {
         if (!self.runExampleUI and !self.isDriverRunning and !Config.te2e and url.len == 0) {
@@ -265,7 +262,8 @@ pub const Driver = struct {
         };
     }
     pub fn closeWindow(self: *Self) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -283,12 +281,11 @@ pub const Driver = struct {
         );
         defer self.allocator.free(res);
         self.isDriverRunning = false;
-        defer req.deinit();
         try self.fileManager.executeShFiles(self.fileManager.files.deleteDriverDetachedSh);
     }
     ///deleteSession - Used to delete current session of chromeDriver and close window
     pub fn deleteSession(self: *Self) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -315,7 +312,7 @@ pub const Driver = struct {
     ///
     /// Find by css, xpath, tagName, id.
     pub fn findElement(self: *Self, selectorType: DriverTypes.SelectorTypes, comptime selectorName: []const u8) ![]const u8 {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -351,7 +348,7 @@ pub const Driver = struct {
         return @as([]const u8, bytes);
     }
     pub fn click(self: *Self, elementID: []const u8) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -367,6 +364,7 @@ pub const Driver = struct {
             .POST,
             headers,
             null,
+            elementID,
         );
         defer self.allocator.free(res);
     }
@@ -374,7 +372,7 @@ pub const Driver = struct {
     ///
     ///Caller must free the memory,
     pub fn getElementText(self: *Self, elementID: []const u8) ![]const u8 {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -390,6 +388,7 @@ pub const Driver = struct {
             .GET,
             headers,
             null,
+            elementID,
         );
         defer self.allocator.free(res);
         const parsed = try std.json.parseFromSlice(GetElementTextResponse, self.allocator, res, .{
@@ -401,7 +400,7 @@ pub const Driver = struct {
         return @as([]const u8, bytes);
     }
     pub fn screenShot(self: *Self, fileName: ?[]const u8) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -437,7 +436,7 @@ pub const Driver = struct {
     }
     ///setWidowPositin - Used to set the window positon on the screen
     ///
-    /// Call before waitForDriver ();and launchWindow();
+    ///Call before waitForDriver ();and launchWindow();
     pub fn setWindowPosition(self: *Self, x: i32, y: i32) !void {
         if (self.isDriverRunning) {
             @panic("Driver::setWindowPosition()::driver is running cannot set window position while running");
@@ -446,33 +445,21 @@ pub const Driver = struct {
         self.windowPositionY = y;
     }
     pub fn waitForDriver(self: *Self, waitOptions: DriverTypes.WaitOptions) !void {
-        try self.fileManager.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sleeping for {d} seconds waiting for driver to start....", waitOptions.driverWaitTime);
+        try self.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sleeping for {d} seconds waiting for driver to start....", waitOptions.driverWaitTime);
         Utils.sleep(waitOptions.driverWaitTime);
-        const response = try Utils.checkIfPortInUse(self.allocator, self.chromeDriverPort);
-        if (response.exitCode == 0) {
-            @panic("Driver::waitForDriver()::port already in use");
-        }
-        const MAX_RETRIES = 3;
+        const MAX_RETRIES = waitOptions.maxRetries;
         var reTries: i32 = 0;
+        const headers = std.http.Client.Request.Headers{};
         while (!self.isDriverRunning) {
             if (MAX_RETRIES > waitOptions.maxRetries) {
                 @panic("Driver::waitForDriver()::failed to start chromeDriver, exiting program...");
             }
-            try self.fileManager.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sending PING to chromeDriver...", null);
-            var req = Http.init(self.allocator, self.fileManager.logger);
-            const bufLen = 250;
-            var urlBuf: [bufLen]u8 = undefined;
-            const urlApi = try self.getRequestUrl(
+            try self.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sending PING to chromeDriver...", null);
+            const res = try self.makeDriverRequests(
                 RequestUrlPaths.STATUS,
-                bufLen,
-                &urlBuf,
-                null,
-            );
-            const headers = std.http.Client.Request.Headers{};
-            const res = try req.makeRequest(
-                urlApi,
                 .GET,
                 headers,
+                null,
                 null,
             );
             const parsed = try std.json.parseFromSlice(ChromeDriverStatusResponse, self.allocator, res, .{
@@ -481,15 +468,11 @@ pub const Driver = struct {
             if (parsed.value.value.ready) {
                 self.isDriverRunning = true;
                 self.allocator.free(res);
-                req.deinit();
                 parsed.deinit();
                 break;
             }
             reTries += 1;
             Utils.sleep(waitOptions.reTryTimer);
-        }
-        if (self.isDriverRunning) {
-            try self.fileManager.writeToStdOut();
         }
     }
     ///keyInValue - Used to keyin values into a text box
@@ -501,7 +484,7 @@ pub const Driver = struct {
         const slice = try list.toOwnedSlice(self.allocator);
         defer self.allocator.free(slice);
         const payload = KeyInValuePayload{ .text = input, .value = slice };
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -521,7 +504,8 @@ pub const Driver = struct {
             urlApi,
             .POST,
             headers,
-            null,
+            body,
+            elementID,
         );
         defer self.allocator.free(res);
     }
@@ -529,7 +513,7 @@ pub const Driver = struct {
         const body: []const u8 =
             \\{"actions":[{"type":"key","id":"keyboard","actions":[{"type":"keyDown","value":"\uE007"}]}]}
         ;
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -549,7 +533,7 @@ pub const Driver = struct {
         defer self.allocator.free(res);
     }
     pub fn goBack(self: *Self) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -569,7 +553,7 @@ pub const Driver = struct {
         defer self.allocator.free(res);
     }
     pub fn goForward(self: *Self) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -600,7 +584,7 @@ pub const Driver = struct {
         }
     }
     fn setWindowSize(self: *Self) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -630,7 +614,7 @@ pub const Driver = struct {
         defer self.allocator.free(res);
     }
     fn setPosition(self: *Self) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -660,7 +644,7 @@ pub const Driver = struct {
         defer self.allocator.free(res);
     }
     fn getSessionID(self: *Self) !void {
-        var req = Http.init(self.allocator, self.fileManager.logger);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
         defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
@@ -700,7 +684,7 @@ pub const Driver = struct {
                 .err = e,
                 .message = parsed.value.value.message,
             };
-            try self.fileManager.log(Types.LogLevels.ERROR, "Driver::getSessionID()::{any}", .{err});
+            try self.log(Types.LogLevels.ERROR, "Driver::getSessionID()::{any}", .{err});
             try self.stopDriver();
             @panic(parsed.value.value.message.?);
         }
@@ -715,7 +699,9 @@ pub const Driver = struct {
         }
     }
     fn navigateToSite(self: *Self, url: []const u8) !void {
-        try self.fileManager.log(Types.LogLevels.INFO, "Driver::navigateToSite()::navigating to: {s}", url);
+        try self.log(Types.LogLevels.INFO, "Driver::navigateToSite()::navigating to: {s}", url);
+        var req = try Http.init(self.allocator, self.fileManager.logger);
+        defer req.deinit();
         const bufLen = 250;
         var urlBuf: [bufLen]u8 = undefined;
         const urlApi = try self.getRequestUrl(
@@ -724,8 +710,6 @@ pub const Driver = struct {
             &urlBuf,
             null,
         );
-        var req = Http.init(self.allocator, self.fileManager.logger);
-        defer req.deinit();
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buf);
         var out = std.io.Writer.Allocating.init(fba.allocator());
@@ -746,19 +730,23 @@ pub const Driver = struct {
         defer self.allocator.free(body);
     }
     fn checkOptions(self: *Self, options: ?Types.ChromeDriverConfigOptions) !void {
+        if (options == null) {
+            @panic("Driver::checkOptions()::received null or undefined for options. Please pass in options object to prceed.");
+        }
         if (options) |op| {
             if (op.chromeDriverPort) |port| {
                 const code = try Utils.checkIfPortInUse(self.allocator, port);
                 if (code.exitCode == 0) {
-                    var buf: [6]u8 = undefined;
-                    const intToString = try std.fmt.bufPrint(&buf, "{d}", .{code.exitCode});
-                    try self.fileManager.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port is currently in use: {s}", @as(
-                        []const u8,
-                        intToString,
-                    ));
+                    try self.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port:{d} is currently in use.", port);
                     @panic("Driver::checkoptins()::port is in use, exiting program...");
                 }
                 self.chromeDriverPort = port;
+            } else {
+                const code = try Utils.checkIfPortInUse(self.allocator, self.chromeDriverPort, null);
+                if (code.exitCode == 0) {
+                    try self.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port:{d} is currently in use.", self.chromeDriverPort);
+                    @panic("Driver::checkoptins()::port is in use, exiting program...");
+                }
             }
             if (op.chromeDriverVersion) |version| {
                 const stable = Types.ChromeDriverVersion.getDriverVersion(0);
@@ -774,12 +762,42 @@ pub const Driver = struct {
             if (op.chromeDriverExecPath) |path| {
                 if (path.len > 0) self.chromeDriverExecPath = path;
             }
-            if (op.chromeDriverExecPath.?.len == 0) {
-                try self.fileManager.log(Types.LogLevels.INFO, "Driver::init()::cannot find chromeDriver exe. Downloading latest version", null);
-                try self.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
+            if (op.chromeDriverExecPath == null or op.chromeDriverExecPath.?.len == 0) {
+                try self.log(Types.LogLevels.INFO, "Driver::init()::cannot find driver exe. Downloading latest version", null);
+                const isFireFox = try Utils.checkIfPortInUse(self.allocator, null, "firefox");
+                if (isFireFox.exitCode == 0) {
+                    try self.fileManager.downloadDriverExecutable("firefox", GECKO_DRIVER_URL);
+                } else {
+                    try self.fileManager.downloadChromeDriverVersionInformation(CHROME_DRIVER_DOWNLOAD_URL);
+                }
             }
-            try self.fileManager.createFiles(op);
+            try self.fileManager.createFiles(op, self.chromeDriverPort);
         }
+    }
+    fn makeDriverRequests(
+        self: *Self,
+        requestURL: RequestUrlPaths,
+        method: std.http.Method,
+        headers: std.http.Client.Request.Headers,
+        body: ?[]u8,
+        elementID: ?[]const u8,
+    ) ![]const u8 {
+        const bufLen = 300;
+        var urlBuf: [bufLen]u8 = undefined;
+        const urlApi = try self.getRequestUrl(
+            requestURL,
+            bufLen,
+            &urlBuf,
+            elementID,
+        );
+        var req = try Http.init(self.allocator, self.fileManager.logger);
+        defer req.deinit();
+        return req.makeRequest(
+            urlApi,
+            method,
+            headers,
+            body,
+        );
     }
     fn getRequestUrl(
         self: *Self,
@@ -796,7 +814,6 @@ pub const Driver = struct {
             });
         }
         const chromeDriverRestURL: []const u8 = "http://127.0.0.1:{d}/{s}";
-
         return switch (chromeRequests) {
             RequestUrlPaths.NEW_SESSION => try Utils.formatString(bufLen, buf, chromeDriverRestURL, .{
                 self.chromeDriverPort,
@@ -966,11 +983,12 @@ pub const Driver = struct {
         return findElementQuery;
     }
     fn handleLaunchWindow(self: *Self, url: []const u8) !void {
-        if (self.runExampleUI) {
-            try self.fileManager.runExampleUI();
-        }
         if (self.isDriverRunning) {
-            if (Config.te2e) {
+            if (self.runExampleUI) {
+                try self.fileManager.runExampleUI();
+                try self.getSessionID();
+                try self.navigateToSite(self.EXAMPLE_URL);
+            } else if (Config.te2e) {
                 self.setHeadlessMode();
                 try self.getSessionID();
                 try self.fileManager.startE2E(url);
@@ -979,5 +997,8 @@ pub const Driver = struct {
                 try self.navigateToSite(url);
             }
         }
+    }
+    fn log(self: *Self, logType: Types.LogLevels, comptime message: []const u8, data: anytype) !void {
+        try self.fileManager.log(logType, message, data);
     }
 };

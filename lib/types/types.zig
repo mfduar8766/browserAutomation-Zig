@@ -175,3 +175,79 @@ pub const FileExtensions = enum(u8) {
         };
     }
 };
+
+pub const FireFoxReleaseInfoResponse = struct {
+    url: []const u8,
+    assets_url: []const u8,
+    upload_url: []const u8,
+    html_url: []const u8,
+    id: u64,
+    author: ?User,
+    node_id: []const u8,
+    tag_name: []const u8,
+    target_commitish: []const u8,
+    name: []const u8,
+    draft: bool,
+    immutable: bool,
+    prerelease: bool,
+    created_at: []const u8,
+    updated_at: []const u8,
+    published_at: []const u8,
+    assets: []Asset,
+    tarball_url: []const u8,
+    zipball_url: []const u8,
+    body: []const u8,
+    reactions: ?Reactions,
+};
+
+const User = struct {
+    login: []const u8,
+    id: u64,
+    node_id: []const u8,
+    avatar_url: []const u8,
+    gravatar_id: []const u8,
+    url: []const u8,
+    html_url: []const u8,
+    followers_url: []const u8,
+    following_url: []const u8,
+    gists_url: []const u8,
+    starred_url: []const u8,
+    subscriptions_url: []const u8,
+    organizations_url: []const u8,
+    repos_url: []const u8,
+    events_url: []const u8,
+    received_events_url: []const u8,
+    type: []const u8,
+    user_view_type: []const u8,
+    site_admin: bool,
+};
+
+const Asset = struct {
+    url: []const u8,
+    id: u64,
+    node_id: []const u8,
+    name: []const u8,
+    label: ?[]const u8,
+    uploader: User,
+    content_type: []const u8,
+    state: []const u8,
+    size: u64,
+    digest: ?[]const u8,
+    download_count: u64,
+    created_at: []const u8,
+    updated_at: []const u8,
+    browser_download_url: []const u8,
+};
+
+const Reactions = struct {
+    url: []const u8,
+    total_count: u64,
+    @"+1": u64,
+    @"-1": u64,
+    laugh: u64,
+    hooray: u64,
+    confused: u64,
+    heart: u64,
+    rocket: u64,
+    eyes: u64,
+};

@@ -7,6 +7,12 @@ const Utils = @import("../utils/utils.zig");
 const Http = @import("../http/http.zig").Http;
 const TestSuites = @import("testSuites.zig").TestSuites;
 const AllocatingWriter = std.io.Writer.Allocating;
+const RequestUrlPaths = @import("../http//http.zig").RequestUrlPaths;
+
+const EmptyChromeDriverOptions = struct {
+    chromeDriverFolderPath: []u8,
+    chromeDriverLogFilePath: []const u8,
+};
 
 pub const Actions = enum {
     ///startChromeDriver - ./startChromeDriver.sh
@@ -88,6 +94,8 @@ pub const FileManager = struct {
     const chromeDriverFolder: []const u8 = "chromeDriver";
     const ExampleUiSession: []const u8 = "ExampleUiSession";
     const localHost: []const u8 = "http://127.0.0.1:3000";
+    const fireFox: []const u8 = "firefox";
+    const fireFoxFolder: []const u8 = "fireFox";
     arena: std.heap.ArenaAllocator = undefined,
     logger: *Logger = undefined,
     driverOutFile: ?std.fs.File = null,
@@ -152,21 +160,21 @@ pub const FileManager = struct {
             Types.LogLevels.FATAL => try self.logger.fatal(message, data),
         }
     }
-    pub fn createFiles(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
-        try self.createStartChromeDriverSh(chromeDriverOptions);
+    pub fn createFiles(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions, port: i32) !void {
+        try self.createStartChromeDriverSh(chromeDriverOptions, port);
         try self.createStartDriverDetachedSh();
         try self.createDeleteDriverDetachedSh();
         try self.createScreenShotDir();
         //TODO:MAYBE CALL CREATE FILE FOR ALL SH FILES HERE
     }
-    pub fn writeToStdOut(self: *Self) !void {
-        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
-        const data = try self.logger.logDir.readFile(self.files.driverOutFile, &buf);
-        var stdout_writer = std.fs.File.stdout().writer(&buf);
-        const stdout = &stdout_writer.interface;
-        try stdout.print("{s}\n", .{data});
-        try stdout.flush(); // Don't forget to flush!
-    }
+    // pub fn writeToStdOut(self: *Self) !void {
+    //     var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+    //     const data = try self.logger.logDir.readFile(self.files.driverOutFile, &buf);
+    //     var stdout_writer = std.fs.File.stdout().writer(&buf);
+    //     const stdout = &stdout_writer.interface;
+    //     try stdout.print("{s}\n", .{data});
+    //     try stdout.flush(); // Don't forget to flush!
+    // }
     pub fn executeFiles(self: *Self, fileName: []const u8, needExecution: bool) !void {
         if (comptime builtIn.os.tag == .windows) {
             if (needExecution) {
@@ -200,9 +208,71 @@ pub const FileManager = struct {
             try Utils.checkExitCode(code.exitCode, code.message);
         }
     }
+    pub fn downloadDriverExecutable(self: *Self, driverName: []const u8, driverURL: []const u8) !void {
+        if (Utils.eql(u8, driverName, fireFox)) {
+            try self.downLoadFireFoxExe(driverURL);
+        } else {
+            try self.downloadChromeDriverVersionInformation(driverURL);
+        }
+    }
+    fn downLoadFireFoxExe(self: *Self, driverURL: []const u8) !void {
+        const cwd = Utils.getCWD();
+        var req = try Http.init(self.getAllocator(), self.logger);
+        defer req.deinit();
+        const headers = std.http.Client.Request.Headers{};
+        const res = try req.makeRequest(driverURL, .GET, headers, null);
+        defer self.getAllocator().free(res);
+        const json = try Utils.parseJSON(Types.FireFoxReleaseInfoResponse, self.getAllocator(), res, .{ .ignore_unknown_fields = true });
+        defer json.deinit();
+        var downloadURL: []const u8 = "";
+        var fileName: []const u8 = "";
+        for (json.value.assets) |asset| {
+            if (Utils.endsWith(u8, asset.name, ".gz") and Utils.containsAtLeast(
+                u8,
+                asset.name,
+                1,
+                Utils.getOsType(),
+            )) {
+                fileName = asset.name;
+                downloadURL = asset.browser_download_url;
+                break;
+            }
+        }
+        const downloadGzip = try req.makeRequest(downloadURL, .GET, headers, null);
+        self.getAllocator().free(downloadGzip);
+        std.debug.print("NAME: {s}\n", .{fileName});
+        const file = try cwd.createFile(
+            fileName,
+            .{ .read = true },
+        );
+        defer file.close();
+        try file.writeAll(downloadGzip);
+        // try file.seekTo(0);
+        if (Utils.dirExistsBool(cwd, fireFoxFolder)) {
+            return;
+        }
+        // try cwd.makeDir(fireFoxFolder);
+        // var dir = try cwd.openDir(fireFoxFolder, .{});
+        // defer dir.close();
+        // const file = try dir.createFile(fireFox, .{});
+        // defer file.close();
+        // try dir.writeFile(.{ .sub_path = fireFox, .data = downloadGzip });
+
+        // std.compress.flate.Decompress.init(input: *Reader, container: Container, buffer: []u8)
+    }
     pub fn downloadChromeDriverVersionInformation(self: *Self, downloadURL: []const u8) !void {
-        var req = Http.init(self.getAllocator(), self.logger);
-        req.deinit();
+        const cwd = Utils.getCWD();
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        const chromdeDriverZipFile = try std.fmt.bufPrint(&buf, "{s}-{s}.zip", .{
+            chromedriver,
+            Utils.getOsType(),
+        });
+        if (Utils.fileExistsBool(cwd, chromdeDriverZipFile)) {
+            try unZipChromeDriver(chromdeDriverZipFile);
+            return;
+        }
+        var req = try Http.init(self.getAllocator(), self.logger);
+        defer req.deinit();
         const headers = std.http.Client.Request.Headers{};
         const body = try req.makeRequest(
             downloadURL,
@@ -210,13 +280,23 @@ pub const FileManager = struct {
             headers,
             null,
         );
-        self.getAllocator().free(body);
-        var buf: [Utils.MAX_BUFF_SIZE * 8]u8 = undefined;
-        const numAsString = try std.fmt.bufPrint(&buf, "{}", .{body.len});
-        try self.log(Types.LogLevels.INFO, "FileManager::downloadChromeDriver()::successfully downloaded btypes: {s}", numAsString);
-        const res = try std.json.parseFromSlice(Types.ChromeDriverResponse, self.getAllocator(), body, .{ .ignore_unknown_fields = true });
-        res.deinit();
-        try self.downoadChromeDriverZip(res.value);
+        defer self.getAllocator().free(body);
+        const res = try Utils.parseJSON(Types.ChromeDriverResponse, self.getAllocator(), body, .{
+            .ignore_unknown_fields = true,
+        });
+        defer res.deinit();
+        self.downoadChromeDriverZip(res.value) catch {
+            const errorMessage: []const u8 =
+                \\FileManager::downloadChromeDriverVersionInformation()::failed to download chromeDriver executable.
+                \\Please retry,
+                \\If the error persists, please download the executable from:
+                \\
+                \\https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json
+                \\
+                \\ And put the exe under chromeDriver folder.
+            ;
+            @panic(errorMessage);
+        };
     }
     pub fn saveScreenShot(self: *Self, fileName: ?[]const u8, bytes: []const u8) !void {
         var dest: [500000]u8 = undefined;
@@ -517,7 +597,7 @@ pub const FileManager = struct {
         if (chromeDriverFileName.len == 0 or Utils.eql(u8, chromeDriverFileName, "UNKNOWN")) {
             @panic("FileManager::downoadChromeDriverZip()::wrong osType exiting program...");
         }
-        var req = Http.init(self.getAllocator(), self.logger);
+        var req = try Http.init(self.getAllocator(), self.logger);
         defer req.deinit();
         const headers = std.http.Client.Request.Headers{};
         const body = try req.makeRequest(
@@ -539,13 +619,15 @@ pub const FileManager = struct {
             try unZipChromeDriver(chromeDriverFileName);
         };
     }
-    ///TODO:NEED TO FIX THIS BECAUSE OF ZIG 0.15.2 CHANGES
     fn unZipChromeDriver(fileName: []const u8) !void {
         const cwd = Utils.getCWD();
+        if (Utils.dirExistsBool(cwd, chromeDriverFolder)) {
+            return;
+        }
+        try cwd.makeDir(chromeDriverFolder);
         const file = try cwd.openFile(fileName, .{});
         defer file.close();
-        try cwd.makeDir(chromeDriverFolder);
-        var dir = try cwd.openDir(chromeDriverFolder, .{ .iterate = true });
+        var dir = try cwd.openDir(chromeDriverFolder, .{ .iterate = true, .access_sub_paths = true });
         defer dir.close();
         var readerBuff: [Utils.MAX_BUFF_SIZE * 8]u8 = undefined;
         var reader = file.reader(&readerBuff);
@@ -603,69 +685,108 @@ pub const FileManager = struct {
         } else {
             try Utils.deleteFileIfExists(self.logger.logDir, self.files.driverOutFile);
             self.driverOutFile = try self.logger.logDir.createFile(self.files.driverOutFile, .{ .truncate = true });
-            const CWD_PATH = try Utils.getCWD().realpathAlloc(self.getAllocator(), ".");
-            defer self.getAllocator().free(CWD_PATH);
+            const currentPath = try Utils.getCWD().realpathAlloc(self.getAllocator(), ".");
+            defer self.getAllocator().free(currentPath);
             const logDirName = self.logger.logDirPath;
             var logDirPathBuf: [100]u8 = undefined;
             const formattedLogDirPath = try Utils.formatString(100, &logDirPathBuf, "/{s}/{s}", .{
                 logDirName,
                 self.files.driverOutFile,
             });
-            chromeDriverLogFilePath = @as([]const u8, try Utils.concatStrings(self.getAllocator(), CWD_PATH, formattedLogDirPath));
+            chromeDriverLogFilePath = @as([]const u8, try Utils.concatStrings(self.getAllocator(), currentPath, formattedLogDirPath));
         }
         return chromeDriverLogFilePath;
     }
-    fn createStartChromeDriverSh(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions) !void {
+    fn createStartChromeDriverSh(self: *Self, chromeDriverOptions: Types.ChromeDriverConfigOptions, port: i32) !void {
         const cwd = Utils.getCWD();
-        const chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.chromeDriverOutFilePath);
-        defer self.getAllocator().free(chromeDriverLogFilePath);
-        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startChromeDriver));
-        var startChromeDriver = try cwd.createFile(self.setShFileByOs(Actions.startChromeDriver), .{});
-        defer startChromeDriver.close();
-        try startChromeDriver.chmod(0o775);
-        var chromeDriverPathArray = try std.ArrayList([]const u8).initCapacity(
-            self.getAllocator(),
-            Utils.MAX_BUFF_SIZE,
-        );
-        defer chromeDriverPathArray.deinit(self.getAllocator());
-        var splitChromePath = std.mem.splitSequence(u8, chromeDriverOptions.chromeDriverExecPath.?, "/");
-        while (splitChromePath.next()) |next| {
-            try chromeDriverPathArray.append(self.getAllocator(), next);
-        }
-        const chromeDriverExec = chromeDriverPathArray.pop();
-        var exeFileName: []const u8 = "";
-        if (chromeDriverExec) |exe| {
-            exeFileName = exe;
-            if (!Utils.eql(u8, exe, chromedriver)) {
+        var chromeDriverFolderPath: []const u8 = undefined;
+        var exeFileName: []const u8 = undefined;
+        var chromeDriverLogFilePath: []const u8 = undefined;
+        const currentPath = try cwd.realpathAlloc(self.getAllocator(), ".");
+        defer self.getAllocator().free(currentPath);
+        if (chromeDriverOptions.chromeDriverExecPath == null or chromeDriverOptions.chromeDriverOutFilePath == null) {
+            const response = try self.handleEmptyChromeDriverOptions(currentPath);
+            chromeDriverFolderPath = response.@"0";
+            chromeDriverLogFilePath = response.@"1";
+            exeFileName = chromedriver;
+        } else if (chromeDriverOptions.chromeDriverExecPath.?.len == 0 or chromeDriverOptions.chromeDriverOutFilePath.?.len == 0) {
+            const response = try self.handleEmptyChromeDriverOptions(currentPath);
+            chromeDriverFolderPath = response.@"0";
+            chromeDriverLogFilePath = response.@"1";
+            exeFileName = chromedriver;
+        } else {
+            chromeDriverLogFilePath = try self.createDriverOutDir(chromeDriverOptions.chromeDriverOutFilePath);
+            defer self.getAllocator().free(chromeDriverLogFilePath);
+            var chromeDriverPathArray = try std.ArrayList([]const u8).initCapacity(
+                self.getAllocator(),
+                Utils.MAX_BUFF_SIZE,
+            );
+            defer chromeDriverPathArray.deinit(self.getAllocator());
+            var splitChromePath = std.mem.splitSequence(u8, chromeDriverOptions.chromeDriverExecPath.?, "/");
+            while (splitChromePath.next()) |next| {
+                try chromeDriverPathArray.append(self.getAllocator(), next);
+            }
+            const chromeDriverExec = chromeDriverPathArray.pop();
+            if (chromeDriverExec) |exe| {
+                if (!Utils.eql(u8, chromedriver, exe)) {
+                    @panic("chromedriver exe not found. Exiting program...");
+                }
+                exeFileName = exe;
+                if (!Utils.eql(u8, exe, chromedriver)) {
+                    @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
+                }
+            }
+            if (exeFileName.len == 0) {
                 @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
             }
+            chromeDriverFolderPath = try std.mem.join(
+                self.getAllocator(),
+                "/",
+                chromeDriverPathArray.items,
+            );
+            defer self.getAllocator().free(chromeDriverFolderPath);
         }
-        if (exeFileName.len == 0) {
-            @panic("FileManager::createStartChromeDriverSh()::cannot find chromeDriver exe file, exiting program...");
-        }
-        const chromeDriverFolderPath = try std.mem.join(
-            self.getAllocator(),
-            "/",
-            chromeDriverPathArray.items,
-        );
-        defer self.getAllocator().free(chromeDriverFolderPath);
         var buf4: [Utils.MAX_BUFF_SIZE]u8 = undefined;
-        const fileContents =
+        const fileContents: []const u8 =
             \\#!/bin/bash
             \\cd "{s}"
             \\chmod +x ./{s}
             \\./{s} --port={d} --log-path={s} --headless &
             \\
         ;
-        const formattedFileContents = try Utils.formatString(Utils.MAX_BUFF_SIZE, &buf4, fileContents, .{
+        const formattedFileContents = try Utils.formatStringAndCopy(self.getAllocator(), Utils.MAX_BUFF_SIZE, &buf4, fileContents, .{
             chromeDriverFolderPath,
             exeFileName,
             exeFileName,
-            chromeDriverOptions.chromeDriverPort.?,
+            if (chromeDriverOptions.chromeDriverPort != null) chromeDriverOptions.chromeDriverPort.? else port,
             chromeDriverLogFilePath,
         });
-        _ = startChromeDriver.write(formattedFileContents) catch |e| {
+        defer self.getAllocator().free(formattedFileContents);
+        try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startChromeDriver));
+        var startChromeDriverFile = try cwd.createFile(self.setShFileByOs(Actions.startChromeDriver), .{});
+        defer startChromeDriverFile.close();
+        try startChromeDriverFile.chmod(0o775);
+        Utils.writeAllToFile(startChromeDriverFile, formattedFileContents) catch |e| {
             @panic(@errorName(e));
+        };
+    }
+    fn handleEmptyChromeDriverOptions(self: *Self, currentPath: []u8) !struct { []const u8, []const u8 } {
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        const chromeDriverFolderPath = try std.fmt.bufPrint(&buf, "{s}/{s}/{s}-{s}/", .{
+            currentPath,
+            chromeDriverFolder,
+            chromedriver,
+            Utils.getOsType(),
+        });
+        var buf2: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        const chromeDriverLogFilePath = try std.fmt.bufPrint(&buf2, "{s}/{s}/{s}", .{
+            currentPath,
+            self.files.loggerFileDir,
+            self.files.driverOutFile,
+        });
+        return .{
+            @as([]const u8, try self.getAllocator().dupe(u8, chromeDriverFolderPath)),
+            @as([]const u8, try self.getAllocator().dupe(u8, chromeDriverLogFilePath)),
         };
     }
     fn createScreenShotDir(self: *Self) !void {

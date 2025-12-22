@@ -313,6 +313,18 @@ pub fn fileExists(cwd: std.fs.Dir, fileName: []const u8) std.fs.Dir.AccessError!
     return try cwd.access(fileName, .{});
 }
 
+pub fn fileExistsBool(cwd: std.fs.Dir, fileName: []const u8) bool {
+    cwd.access(fileName, .{}) catch |e| {
+        if (e == Errors.PathAlreadyExists) {
+            return true;
+        } else {
+            printLn("Utils::fileExistsBool()::received error: {s}", @errorName(e));
+            return false;
+        }
+    };
+    return true;
+}
+
 // TODO: come back to this
 pub fn parseJSON(comptime T: type, allocator: Allocator, body: []const u8, options: std.json.ParseOptions) !std.json.Parsed(T) {
     return try std.json.parseFromSlice(T, allocator, body, options);
@@ -330,6 +342,18 @@ pub fn stringify(allocator: Allocator, value: anytype, options: std.json.Stringi
 
 pub fn dirExists(cwd: std.fs.Dir, dirName: []const u8) std.fs.Dir.AccessError!void {
     return cwd.access(dirName, .{});
+}
+
+pub fn dirExistsBool(cwd: std.fs.Dir, dirName: []const u8) bool {
+    cwd.access(dirName, .{}) catch |e| {
+        if (e == Errors.PathAlreadyExists) {
+            return true;
+        } else {
+            printLn("Utils::dirExistsBool()::received error: {s}", @errorName(e));
+            return false;
+        }
+    };
+    return true;
 }
 
 pub fn makePath(dir: std.fs.Dir, dirName: []const u8) (std.fs.Dir.MakeError || std.fs.Dir.StatFileError)!void {
@@ -547,17 +571,25 @@ pub fn getPID(allocator: Allocator, bufLen: comptime_int, buf: *[bufLen]u8, proc
 }
 
 /// if port is in use lsof -i:PORT returns 0 else 1
-pub fn checkIfPortInUse(allocator: Allocator, port: i32) !ExecCmdResponse {
+pub fn checkIfPortInUse(allocator: Allocator, port: ?i32, browser: ?[]const u8) !ExecCmdResponse {
     var execResponse = ExecCmdResponse{ .exitCode = 1, .message = "port is free" };
-    var buf: [16]u8 = undefined;
-    const formattedPort = try std.fmt.bufPrint(&buf, ":{d}", .{port});
-    const args = [_][]const u8{
-        "lsof",
-        "-i",
-        formattedPort,
-    };
-    printLn("Utils::checkIfPortInUse()::checking if port: {d} is in use", port);
-    var child = std.process.Child.init(&args, allocator);
+    var child: std.process.Child = undefined;
+    if (browser) |b| {
+        const args = [_][]const u8{ "lsof", "-i", "-c", b };
+        printLn("Utils::checkIfPortInUse()::checking if browser: {s} is available", .{b});
+        child = std.process.Child.init(&args, allocator);
+    }
+    if (port) |p| {
+        var buf: [16]u8 = undefined;
+        const formattedPort = try std.fmt.bufPrint(&buf, ":{d}", .{p});
+        const args = [_][]const u8{
+            "lsof",
+            "-i",
+            formattedPort,
+        };
+        printLn("Utils::checkIfPortInUse()::checking if port: {d} is in use", p);
+        child = std.process.Child.init(&args, allocator);
+    }
     try child.spawn();
     const term = try child.wait();
     switch (term) {
@@ -641,7 +673,7 @@ pub fn convertToString(
         if (typeInfo == .@"struct") {
             const formattedMessage = try std.fmt.bufPrint(buf, message, data);
             return .{ .message = @as([]const u8, formattedMessage), .data = null };
-        } else if (typeInfo == .comptime_int or typeInfo == .comptime_float) {
+        } else if (typeInfo == .comptime_int or typeInfo == .comptime_float or typeInfo == .int or typeInfo == .float or TData == usize) {
             const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
             return .{ .message = @as([]const u8, formattedMessage), .data = null };
         } else if (typeInfo == .pointer) {
