@@ -1,0 +1,27 @@
+Change dir to UI and start node server...
+
+> example-ui-app@1.0.0 build
+> npm run clean && npm run copy && npm run start
+
+
+> example-ui-app@1.0.0 clean
+> rm -rf dist
+
+
+> example-ui-app@1.0.0 copy
+> mkdir -p dist && cp index.js dist && cp index.html dist
+
+
+> example-ui-app@1.0.0 start
+> npm run clean && npm run copy && node dist/index.js
+
+
+> example-ui-app@1.0.0 clean
+> rm -rf dist
+
+
+> example-ui-app@1.0.0 copy
+> mkdir -p dist && cp index.js dist && cp index.html dist
+
+Server listening on http://127.0.0.1:3000
+Killed

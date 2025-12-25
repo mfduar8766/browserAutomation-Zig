@@ -79,21 +79,22 @@ pub const ChromeDriverVersion = enum(u4) {
     }
 };
 
-pub const ChromeCapabilities = struct {
+pub const DriverCapabilities = struct {
     capabilities: Capabilities = Capabilities{},
 };
 
 pub const Capabilities = struct {
-    acceptInsecureCerts: bool = true,
+    acceptInsecureCerts: ?bool = null,
     alwaysMatch: AlwaysMatchOptions = AlwaysMatchOptions{},
 };
 
 pub const AlwaysMatchOptions = struct {
     browserName: []const u8 = "chrome",
-    @"goog:chromeOptions": GoogleChromeOptiions = GoogleChromeOptiions{},
+    @"goog:chromeOptions": ?DriverCapabilitiesOptions = null,
+    @"moz:firefoxOptions": ?DriverCapabilitiesOptions = null,
 };
 
-pub const GoogleChromeOptiions = struct {
+pub const DriverCapabilitiesOptions = struct {
     args: ?[3][]const u8 = null,
 };
 

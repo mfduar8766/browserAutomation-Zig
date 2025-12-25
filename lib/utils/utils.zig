@@ -392,17 +392,14 @@ pub fn executeCmds(
     allocator: Allocator,
     args: *const [argsLen][]const u8,
     incomingFileName: []const u8,
+    _: bool,
 ) !ExecCmdResponse {
-    var execResponse = ExecCmdResponse{};
-    const outFileLog: []const u8 = "out";
-    const cleanUpFileName = if (incomingFileName.len >= 10 and containsAtLeast(u8, incomingFileName, 1, ".")) incomingFileName[2 .. incomingFileName.len - 3] else outFileLog;
     const argv_slice = &args.*;
     const fullCommand = try join(allocator, " ", argv_slice);
     defer allocator.free(fullCommand);
-    printLn("Utils::executeCmds()::argsLen: {d}, incomingFileName: {s}, cleanUpFileName: {s}, fullCommand: {s}", .{
+    printLn("Utils::executeCmds()::argsLen: {d}, incomingFileName: {s}, fullCommand: {s}", .{
         argsLen,
         incomingFileName,
-        cleanUpFileName,
         fullCommand,
     });
     var child: std.process.Child = undefined;
@@ -410,36 +407,8 @@ pub fn executeCmds(
         printLn("Utils::executeCmds()::running chmod +x", .{});
         child = std.process.Child.init(args, allocator);
     } else {
-        const today = fromTimestamp(@intCast(time.timestamp()));
-        var buf: [MAX_BUFF_SIZE]u8 = undefined;
-        var fmtFileBuf: [MAX_BUFF_SIZE]u8 = undefined;
-        const fileName = createFileName(
-            MAX_BUFF_SIZE,
-            &buf,
-            try formatString(MAX_BUFF_SIZE, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
-                cleanUpFileName,
-                today.year,
-                today.month,
-                today.day,
-            }),
-            Types.FileExtensions.LOG,
-        ) catch |e| {
-            printLn("Utils::executeCmds()::err:{s}\n", .{@errorName(e)});
-            @panic("Utils::executeCmds()::error creating fileName exiting program...\n");
-        };
-        try deleteFileIfExists(getCWD(), fileName);
-        const file = try getCWD().createFile(fileName, .{
-            .read = false,
-            .truncate = true,
-        });
-        try file.chmod(0o664); // 0o664 (rw-rw-r--) is safer than 777
-        file.close();
-        var commandStrBuf: [MAX_BUFF_SIZE]u8 = undefined;
-        const command_str = try formatStringAndCopy(allocator, MAX_BUFF_SIZE, &commandStrBuf, "{s} > {s} 2>&1", .{ fullCommand, fileName });
-        defer allocator.free(command_str);
-        const innerCmd = command_str;
         var cmdBuf: [MAX_BUFF_SIZE]u8 = undefined;
-        const cmd = try std.fmt.bufPrint(&cmdBuf, "{s}", .{innerCmd});
+        const cmd = try std.fmt.bufPrint(&cmdBuf, "{s}", .{fullCommand});
         std.debug.print("Utils::executeCmds()::running command:{s}\n", .{cmd});
         child = std.process.Child.init(
             &[_][]const u8{
@@ -450,14 +419,57 @@ pub fn executeCmds(
             allocator,
         );
     }
+    // child.stdout_behavior = .Ignore;
+    // child.stderr_behavior = .Ignore;
+    // if (getStdOut) {
+    //     child.stdout_behavior = .Pipe;
+    //     child.stderr_behavior = .Pipe;
+    // }
     try child.spawn();
     const term = try child.wait();
+    // if (getStdOut) {
+    //     if (child.stdout) |_| {
+    //         std.debug.print("Command output stdout is ready to be collected.\n", .{});
+    //     } else {
+    //         std.debug.print("Error: stdout is null. The process may have failed to spawn or execute.\n", .{});
+    //         return ExecCmdResponse{
+    //             .exitCode = 1,
+    //             .message = "Error: stdout is null. The process may have failed to spawn or execute.\n",
+    //         };
+    //     }
+    //     var fbaBuf: [MAX_BUFF_SIZE]u8 = undefined;
+    //     var fba = std.heap.FixedBufferAllocator.init(&fbaBuf);
+    //     var stdOutBuf = std.ArrayList(u8).empty;
+    //     var stdErrBuf = std.ArrayList(u8).empty;
+    //     errdefer stdOutBuf.deinit(fba.allocator());
+    //     errdefer stdErrBuf.deinit(fba.allocator());
+    //     try child.collectOutput(
+    //         fba.allocator(),
+    //         &stdOutBuf,
+    //         &stdErrBuf,
+    //         MAX_BUFF_SIZE,
+    //     );
+    //     return try handleTerm(term, stdOutBuf);
+    // }
+    return try handleTerm(term, null);
+}
+
+fn handleTerm(term: std.process.Child.Term, stdOutBuf: ?std.ArrayList(u8)) !ExecCmdResponse {
+    var execResponse = ExecCmdResponse{};
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
                 printLn("Utils::executeCmds()::The following command exited with error code: {d}", .{code});
                 execResponse.exitCode = @as(i32, @intCast(code));
                 execResponse.message = @errorName(error.CommandFailed);
+                return execResponse;
+            } else {
+                if (stdOutBuf) |buf| {
+                    std.debug.print("OUT: {s}\n", .{buf.items});
+                    execResponse.exitCode = 0;
+                    execResponse.message = @as([]const u8, buf.items);
+                    return execResponse;
+                }
                 return execResponse;
             }
         },
@@ -660,36 +672,6 @@ pub fn getOsType() []const u8 {
     };
 }
 
-pub fn convertToString(
-    bufLen: comptime_int,
-    buf: *[bufLen]u8,
-    TData: type,
-    data: anytype,
-    comptime message: []const u8,
-) !struct { data: ?[]const u8, message: []const u8 } {
-    const typeInfo = @typeInfo(TData);
-    if (typeInfo != .null) {
-        if (typeInfo == .@"struct") {
-            var jsonBuf: [MAX_BUFF_SIZE]u8 = undefined;
-            var fba = std.heap.FixedBufferAllocator.init(&jsonBuf);
-            const json = try stringify(fba.allocator(), data, .{ .emit_null_optional_fields = true });
-            const formattedMessage = try std.fmt.bufPrint(buf, message, .{json});
-            return .{ .message = @as([]const u8, formattedMessage), .data = null };
-        } else if (typeInfo == .comptime_int or typeInfo == .comptime_float or typeInfo == .int or typeInfo == .float or TData == usize) {
-            const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
-            return .{ .message = @as([]const u8, formattedMessage), .data = null };
-        } else if (typeInfo == .pointer) {
-            const isConst = typeInfo.pointer.is_const;
-            const child = typeInfo.pointer.child;
-            if (isConst and (child == u8 or child == [data.len:0]u8 or TData == *const [data.len:0]u8 or TData == []const u8)) {
-                const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
-                return .{ .message = @as([]const u8, formattedMessage), .data = null };
-            }
-        }
-    }
-    return .{ .data = null, .message = message };
-}
-
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return std.mem.startsWith(T, haystack, needle);
 }
@@ -703,8 +685,19 @@ pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return std.mem.endsWith(T, haystack, needle);
 }
 
+///Returns true if the haystack contains expected_count or more needles needle.len must be > 0 does not count overlapping needles See also: containsAtLeastScalar
 pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
     return std.mem.containsAtLeast(
+        T,
+        haystack,
+        expected_count,
+        needle,
+    );
+}
+
+///Returns true if the haystack contains expected_count or more needles See also: containsAtLeast
+pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
+    return std.mem.containsAtLeastScalar(
         T,
         haystack,
         expected_count,
