@@ -107,14 +107,15 @@ const LoggerData = struct {
         }
         var buf: [29]u8 = undefined;
         const timeStamp = Utils.fromTimestamp(@intCast(time.timestamp()));
-        const formattedTime = try Utils.toRFC3339(29, &buf, timeStamp); //try std.fmt.bufPrint(&buf, "{s}", .{try Utils.toRFC3339(timeStamp)});
+        const formattedTime = try Utils.toRFC3339(29, &buf, timeStamp);
         self.time = formattedTime;
-        try self.createJson(file, message, data);
+        try self.createJson(file, level, message, data);
     }
-    fn createJson(self: *Self, file: fs.File, comptime message: []const u8, data: anytype) !void {
+    fn createJson(self: *Self, file: fs.File, level: Types.LogLevels, comptime message: []const u8, data: anytype) !void {
         var convertToStrBuf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         const T = @TypeOf(data);
-        const formattedData = try Utils.convertToString(
+        const formattedData = try convertToString(
+            level,
             Utils.MAX_BUFF_SIZE,
             &convertToStrBuf,
             T,
@@ -139,12 +140,63 @@ const LoggerData = struct {
         );
         try writeToFile(file, out.written());
     }
+    fn convertToString(
+        _: Types.LogLevels,
+        bufLen: comptime_int,
+        buf: *[bufLen]u8,
+        TData: type,
+        data: anytype,
+        comptime message: []const u8,
+    ) !struct { data: ?[]const u8, message: []const u8 } {
+        //TODO:MAYBE ADD COLORS?
+        // const Red: []const u8 = "\x1b[31m";
+        // const Green: []const u8 = "\x1b[32m";
+        // const Yellow: []const u8 = "\x1b[33m";
+        // const Orange: []const u8 = "\x1b[38;5;214m"; // 256-color orange approximation
+        // const Reset: []const u8 = "\x1b[0m";
+        // const newMessage = switch (level) {
+        //     Types.LogLevels.INFO => Green ++ message ++ Reset,
+        //     Types.LogLevels.WARNING => Yellow ++ message ++ Reset,
+        //     Types.LogLevels.ERROR => Orange ++ message ++ Reset,
+        //     Types.LogLevels.FATAL => Red ++ message ++ Reset,
+        // };
+        const typeInfo = @typeInfo(TData);
+        if (typeInfo != .null) {
+            if (typeInfo == .@"struct") {
+                const fields = typeInfo.@"struct".fields;
+                inline for (fields) |field| {
+                    const fieldTypeInfo = @typeInfo(field.type);
+                    if (fieldTypeInfo == .@"struct") {
+                        var jsonBuf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+                        var fba = std.heap.FixedBufferAllocator.init(&jsonBuf);
+                        const json = try Utils.stringify(fba.allocator(), data, .{ .emit_null_optional_fields = true });
+                        const formattedMessage = try std.fmt.bufPrint(buf, message, .{json});
+                        return .{ .message = @as([]const u8, formattedMessage), .data = null };
+                    } else {
+                        const formattedMessage = try std.fmt.bufPrint(buf, message, data);
+                        return .{ .message = @as([]const u8, formattedMessage), .data = null };
+                    }
+                }
+            } else if (typeInfo == .comptime_int or typeInfo == .comptime_float or typeInfo == .int or typeInfo == .float or TData == usize) {
+                const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
+                return .{ .message = @as([]const u8, formattedMessage), .data = null };
+            } else if (typeInfo == .pointer) {
+                const isConst = typeInfo.pointer.is_const;
+                const child = typeInfo.pointer.child;
+                if (isConst and (child == u8 or child == [data.len:0]u8 or TData == *const [data.len:0]u8 or TData == []const u8)) {
+                    const formattedMessage = try std.fmt.bufPrint(buf, message, .{data});
+                    return .{ .message = @as([]const u8, formattedMessage), .data = null };
+                }
+            }
+        }
+        return .{ .data = null, .message = message };
+    }
     fn writeToFile(file: fs.File, bytes: []const u8) !void {
         var buff: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var stdout_writer_wrapper = std.fs.File.stdout().writer(&buff);
         const stdout: *std.io.Writer = &stdout_writer_wrapper.interface;
         _ = try file.seekFromEnd(0);
-        try file.writeAll(bytes);
+        try Utils.writeAllToFile(file, bytes);
         _ = try file.write("\n");
         _ = try stdout.print("{s}\n", .{bytes});
         try stdout.flush();

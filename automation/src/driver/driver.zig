@@ -102,15 +102,15 @@ const GetElementTextResponse = struct {
 ///ChromeDriverStatusResponse - response from chromeDriver /status API to determine if chrome is ready to receive requests
 const ChromeDriverStatusResponse = struct {
     value: struct {
-        build: struct {
+        build: ?struct {
             version: []const u8,
-        },
+        } = null,
         message: []const u8,
-        os: struct {
+        os: ?struct {
             arch: []const u8,
             name: []const u8,
             version: []const u8,
-        },
+        } = null,
         ready: bool,
     },
 };
@@ -210,6 +210,7 @@ pub const Driver = struct {
     windowPositionY: i32 = 0,
     isHeadlessMode: bool = false,
     runExampleUI: bool = false,
+    isFireFox: bool = false,
 
     pub fn init(allocator: Allocator, runExampleUI: bool, options: ?Types.DriverConfigOptions) !*Self {
         const driverPrt = try allocator.create(Self);
@@ -394,9 +395,9 @@ pub const Driver = struct {
         const headers = std.http.Client.Request.Headers{};
         while (!self.isDriverRunning) {
             if (MAX_RETRIES > waitOptions.maxRetries) {
-                @panic("Driver::waitForDriver()::failed to start chromeDriver, exiting program...");
+                @panic("Driver::waitForDriver()::failed to start driver, exiting program...");
             }
-            try self.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sending PING to chromeDriver...", null);
+            try self.log(Types.LogLevels.INFO, "Driver::waitForDriver()::sending PING to driver...", null);
             const res = try self.makeDriverRequests(
                 RequestUrlPaths.STATUS,
                 .GET,
@@ -479,12 +480,15 @@ pub const Driver = struct {
     }
     pub fn stopDriver(self: *Self) !void {
         if (self.isDriverRunning) {
+            try self.log(Types.LogLevels.INFO, "Driver::stopDriver()::stopping driver...", null);
             try self.fileManager.executeFiles(self.fileManager.setShFileByOs(FileActions.deleteDriverDetached), false);
         }
         if (self.runExampleUI) {
+            try self.log(Types.LogLevels.INFO, "Driver::stopDriver()::stopping exampleUI...", null);
             try self.fileManager.stopExampleUI();
         }
         if (Config.te2e) {
+            try self.log(Types.LogLevels.INFO, "Driver::stopDriver()::stopping E2E...", null);
             try self.fileManager.stopE2E();
         }
     }
@@ -531,38 +535,44 @@ pub const Driver = struct {
         defer self.allocator.free(res);
     }
     fn getSessionID(self: *Self) !void {
-        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&buf);
-        var chromeDriverCapabilities = Types.ChromeCapabilities{};
+        var driverCapabilities = Types.DriverCapabilities{};
         if (self.isHeadlessMode) {
             const array = [3][]const u8{ "--headless", "--disable-gpu", "--disable-extensions" };
-            chromeDriverCapabilities.capabilities.alwaysMatch.@"goog:chromeOptions".args = array;
+            if (self.isFireFox) {
+                driverCapabilities.capabilities.alwaysMatch = Types.AlwaysMatchOptions{
+                    .browserName = "firefox",
+                    .@"moz:firefoxOptions" = Types.DriverCapabilitiesOptions{ .args = array },
+                };
+            } else {
+                driverCapabilities.capabilities.acceptInsecureCerts = true;
+                driverCapabilities.capabilities.alwaysMatch = Types.AlwaysMatchOptions{
+                    .browserName = "chrome",
+                    .@"goog:chromeOptions" = Types.DriverCapabilitiesOptions{ .args = array },
+                };
+            }
         }
-        var out = std.io.Writer.Allocating.init(fba.allocator());
-        const writter = &out.writer;
-        defer out.deinit();
-        try std.json.Stringify.value(
-            chromeDriverCapabilities,
+        const json = try Utils.stringify(
+            self.allocator,
+            driverCapabilities,
             .{ .emit_null_optional_fields = false },
-            writter,
         );
+        defer self.allocator.free(json);
         const headers = std.http.Client.Request.Headers{ .content_type = .{ .override = applicationJSON } };
         const body = try self.makeDriverRequests(
             RequestUrlPaths.NEW_SESSION,
             .POST,
             headers,
-            out.written(),
+            json,
             null,
         );
         const parsed = try Utils.parseJSON(ChromeDriverSessionResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
         });
         if (parsed.value.value.@"error") |e| {
-            const err = .{
+            try self.log(Types.LogLevels.ERROR, "Driver::getSessionID()::received error: {s}", .{.{
                 .err = e,
-                .message = parsed.value.value.message,
-            };
-            try self.log(Types.LogLevels.ERROR, "Driver::getSessionID()::{any}", .{err});
+                .message = parsed.value.value.message.?,
+            }});
             try self.stopDriver();
             @panic(parsed.value.value.message.?);
         }
@@ -604,7 +614,7 @@ pub const Driver = struct {
         }
         if (options) |op| {
             if (op.driverPort) |port| {
-                const code = try Utils.checkIfPortInUse(self.allocator, port);
+                const code = try Utils.checkIfPortInUse(self.allocator, port, null);
                 if (code.exitCode == 0) {
                     try self.log(Types.LogLevels.ERROR, "Driver::checkOptions()::port:{d} is currently in use.", port);
                     @panic("Driver::checkoptins()::port is in use, exiting program...");
@@ -636,6 +646,7 @@ pub const Driver = struct {
                 const isFireFox = try self.fileManager.checkForBrowsers();
                 if (isFireFox == 0) {
                     self.fileManager.setIsFireFox();
+                    self.isFireFox = true;
                     try self.fileManager.downloadDriverExecutable("firefox", GECKO_DRIVER_URL);
                 } else {
                     try self.fileManager.downloadDriverExecutable("chrome", CHROME_DRIVER_DOWNLOAD_URL);
@@ -856,10 +867,9 @@ pub const Driver = struct {
         if (self.isDriverRunning) {
             if (self.runExampleUI) {
                 try self.fileManager.runExampleUI();
-                try self.getSessionID();
-                try self.navigateToSite(self.EXAMPLE_URL);
+                // try self.getSessionID();
+                // try self.navigateToSite(self.EXAMPLE_URL);
             } else if (Config.te2e) {
-                self.setHeadlessMode();
                 try self.getSessionID();
                 try self.fileManager.startE2E(url);
             } else {

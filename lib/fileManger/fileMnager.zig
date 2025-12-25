@@ -33,6 +33,7 @@ pub const Actions = enum {
     ///checkPortInUse.sh
     checkPortInUse,
     checkForBrowser,
+    checkForFireFoxProfilePath,
 };
 
 const Files = struct {
@@ -78,8 +79,10 @@ const Files = struct {
     comptime deleteExampleUiDetachedSHW: []const u8 = ".\\deleteExampleUIDetached.sh",
     comptime checkPortInUseSh: []const u8 = "./checkPortInUse.sh",
     comptime checkPortInUseSHW: []const u8 = "\\.checkPortInUse.sh",
-    comptime checkForBrowserSh: []const u8 = "./checkForBrowser,sh",
+    comptime checkForBrowserSh: []const u8 = "./checkForBrowser.sh",
     comptime checkForBrowserShW: []const u8 = ".\\checkForBrowser.sh",
+    comptime checkForFireFoxProfilePathSh: []const u8 = "./checkForFireFoxProfilePath.sh",
+    comptime checkForFireFoxProfilePathShW: []const u8 = ".\\checkForFireFoxProfilePath.sh",
 };
 
 pub const FileManager = struct {
@@ -120,7 +123,7 @@ pub const FileManager = struct {
             @panic("FileManager::init()::failed to init fileManager, exiting program...");
         };
         if (fileManager.isE2eRunning) {
-            try fileManager.logger.info("FileManager::init()::running E2E suite", null);
+            try fileManager.log(Types.LogLevels.INFO, "FileManager::init()::running E2E suite", null);
             fileManager.setUp() catch |er| {
                 try fileManager.log(Types.LogLevels.FATAL, "FileManager::init()::failed to initialize state: {s}", @errorName(er));
                 defer fileManager.deinit();
@@ -173,14 +176,6 @@ pub const FileManager = struct {
         try self.createScreenShotDir();
         //TODO:MAYBE CALL CREATE FILE FOR ALL SH FILES HERE
     }
-    // pub fn writeToStdOut(self: *Self) !void {
-    //     var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
-    //     const data = try self.logger.logDir.readFile(self.files.driverOutFile, &buf);
-    //     var stdout_writer = std.fs.File.stdout().writer(&buf);
-    //     const stdout = &stdout_writer.interface;
-    //     try stdout.print("{s}\n", .{data});
-    //     try stdout.flush(); // Don't forget to flush!
-    // }
     pub fn executeFiles(self: *Self, fileName: []const u8, needExecution: bool) !void {
         if (comptime builtIn.os.tag == .windows) {
             if (needExecution) {
@@ -189,13 +184,25 @@ pub const FileManager = struct {
                     "+x",
                     fileName,
                 };
-                const code = try Utils.executeCmds(argv.len, self.getAllocator(), &argv, fileName);
+                const code = try Utils.executeCmds(
+                    argv.len,
+                    self.getAllocator(),
+                    &argv,
+                    fileName,
+                    false,
+                );
                 try Utils.checkExitCode(code.exitCode, code.message);
             }
             const arg2 = [1][]const u8{
                 fileName,
             };
-            const code = try Utils.executeCmds(arg2.len, self.getAllocator(), &arg2, fileName);
+            const code = try Utils.executeCmds(
+                arg2.len,
+                self.getAllocator(),
+                &arg2,
+                fileName,
+                false,
+            );
             try Utils.checkExitCode(code.exitCode, code.message);
         } else {
             if (needExecution) {
@@ -204,18 +211,31 @@ pub const FileManager = struct {
                     "+x",
                     fileName,
                 };
-                const code = try Utils.executeCmds(argv.len, self.getAllocator(), &argv, fileName);
+                const code = try Utils.executeCmds(
+                    argv.len,
+                    self.getAllocator(),
+                    &argv,
+                    fileName,
+                    false,
+                );
                 try Utils.checkExitCode(code.exitCode, code.message);
             }
             const arg2 = [1][]const u8{
                 fileName,
             };
-            const code = try Utils.executeCmds(arg2.len, self.getAllocator(), &arg2, fileName);
+            const code = try Utils.executeCmds(
+                arg2.len,
+                self.getAllocator(),
+                &arg2,
+                fileName,
+                false,
+            );
             try Utils.checkExitCode(code.exitCode, code.message);
         }
     }
     pub fn downloadDriverExecutable(self: *Self, driverName: []const u8, driverURL: []const u8) !void {
         if (Utils.eql(u8, driverName, fireFox)) {
+            try self.findFireFoxProfile();
             try self.downloadGeckoDriverExe(driverURL);
         } else {
             try self.downloadChromeDriverVersionInformation(driverURL);
@@ -315,7 +335,7 @@ pub const FileManager = struct {
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startE2eDetached));
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.buildAndInstallSh));
         self.buildAndInstall(cwd, CWD_PATH) catch |e| {
-            try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::received error: {s}", .{@errorName(e)});
+            try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::received error: {s}", @errorName(e));
             @panic(@errorName(e));
         };
         var deleteE2eDetachedFile = try cwd.createFile(self.setShFileByOs(Actions.deleteE2eDetached), .{});
@@ -343,7 +363,7 @@ pub const FileManager = struct {
         );
         defer self.getAllocator().free(startE2eDetachedFileData);
         Utils.writeAllToFile(startE2eDetached, startE2eDetachedFileData) catch |e| {
-            try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::Caught error: {s}", .{@errorName(e)});
+            try self.log(Types.LogLevels.ERROR, "FileManager::startE2E()::Caught error: {s}", @errorName(e));
             @panic(@errorName(e));
         };
         startE2eDetached.close();
@@ -456,10 +476,16 @@ pub const FileManager = struct {
                 return self.files.checkPortInUseSh;
             },
             Actions.checkForBrowser => {
-                if (self.isWindows) {
+                if (self.isWindows()) {
                     return self.files.checkForBrowserShW;
                 }
                 return self.files.checkForBrowserSh;
+            },
+            Actions.checkForFireFoxProfilePath => {
+                if (self.isWindows()) {
+                    return self.files.checkForFireFoxProfilePathShW;
+                }
+                return self.files.checkForFireFoxProfilePathSh;
             },
         };
     }
@@ -520,8 +546,14 @@ pub const FileManager = struct {
         try Utils.writeAllToFile(file, script);
         file.close();
         const args = [1][]const u8{fileName};
-        const response = try Utils.executeCmds(1, self.getAllocator(), &args, self.setShFileByOs(Actions.checkForBrowser));
-        return response.exitCodel;
+        const response = try Utils.executeCmds(
+            1,
+            self.getAllocator(),
+            &args,
+            self.setShFileByOs(Actions.checkForBrowser),
+            false,
+        );
+        return response.exitCode;
     }
     fn getAllocator(self: *Self) std.mem.Allocator {
         return self.arena.allocator();
@@ -644,10 +676,12 @@ pub const FileManager = struct {
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startDriverDetached));
         var startDriverDetachedShFile = try cwd.createFile(self.setShFileByOs(Actions.startDriverDetached), .{});
         try startDriverDetachedShFile.chmod(0o775);
+        const sessionTitle = if (self.isFireFox) geckoDriverSession else chromeDriverSession;
+        const serviceName = if (self.isFireFox) geckoDriverServiceName else chromedriverServiceName;
         const fileData = try createStartDetachedShFileData(
             self.getAllocator(),
-            if (self.isFireFox) geckoDriverSession else chromeDriverSession,
-            if (self.isFireFox) geckoDriverServiceName else chromedriverServiceName,
+            sessionTitle,
+            serviceName,
             self.setShFileByOs(
                 Actions.startDriver,
             ),
@@ -664,10 +698,12 @@ pub const FileManager = struct {
         var deleteDriverSessionDetachedShFile = try cwd.createFile(self.setShFileByOs(Actions.deleteDriverDetached), .{});
         defer deleteDriverSessionDetachedShFile.close();
         try deleteDriverSessionDetachedShFile.chmod(0o775);
+        const sessionTitle = if (self.isFireFox) geckoDriverSession else chromeDriverSession;
+        const serviceName = if (self.isFireFox) geckoDriverServiceName else chromedriverServiceName;
         const fileData = try createDeleteDetachedShFileData(
             self.getAllocator(),
-            if (self.isFireFox) geckoDriverSession else chromeDriverSession,
-            if (self.isFireFox) geckoDriverServiceName else chromedriverServiceName,
+            sessionTitle,
+            serviceName,
         );
         defer self.getAllocator().free(fileData);
         Utils.writeAllToFile(deleteDriverSessionDetachedShFile, fileData) catch |e| {
@@ -712,11 +748,11 @@ pub const FileManager = struct {
             exeFileName = if (self.isFireFox) geckoDriverServiceName else chromedriverServiceName;
         } else {
             const driverOptionsResponse = try self.handleDriverOptions(driverOptions);
-            driverLogFilePath = try self.createDriverOutDir(driverOptionsResponse.@"0");
-            defer self.getAllocator().free(driverLogFilePath);
-            driverFolderPath = driverOptionsResponse.@"1";
-            defer self.getAllocator().free(driverFolderPath);
+            driverFolderPath = driverOptionsResponse.@"0";
+            driverLogFilePath = try self.createDriverOutDir(driverOptionsResponse.@"1");
         }
+        defer self.getAllocator().free(driverLogFilePath);
+        defer self.getAllocator().free(driverFolderPath);
         const driverPort = if (driverOptions.driverPort != null) driverOptions.driverPort.? else port;
         try self.log(Types.LogLevels.INFO, "FileManager::()::createStartDriverSh()::received options: {s}", .{.{
             .driverFolderPath = driverFolderPath,
@@ -724,20 +760,27 @@ pub const FileManager = struct {
             .exeFileName = exeFileName,
             .port = driverPort,
         }});
-        var buf4: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        var buf2: [Utils.MAX_BUFF_SIZE]u8 = undefined;
+        const logFilePathStr = if (self.isFireFox) try std.fmt.bufPrint(&buf2, "--profile /home/mfduar8766/snap/firefox/common/.mozilla/firefox/vx9yz4fp.default --log trace --port {d} 2> {s}", .{
+            driverPort,
+            driverLogFilePath,
+        }) else try std.fmt.bufPrint(&buf2, "--port={d} --log-path={s} --headless", .{
+            driverPort,
+            driverLogFilePath,
+        });
         const fileContents: []const u8 =
             \\#!/bin/bash
             \\cd "{s}"
             \\chmod +x ./{s}
-            \\./{s} --port={d} --log-path={s} --headless &
+            \\./{s} {s} &
             \\
         ;
-        const formattedFileContents = try Utils.formatStringAndCopy(self.getAllocator(), Utils.MAX_BUFF_SIZE, &buf4, fileContents, .{
+        const formattedFileContents = try Utils.formatStringAndCopy(self.getAllocator(), Utils.MAX_BUFF_SIZE, &buf, fileContents, .{
             driverFolderPath,
             exeFileName,
             exeFileName,
-            driverPort,
-            driverLogFilePath,
+            logFilePathStr,
         });
         defer self.getAllocator().free(formattedFileContents);
         try Utils.deleteFileIfExists(cwd, self.setShFileByOs(Actions.startDriver));
@@ -752,7 +795,7 @@ pub const FileManager = struct {
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
         var driverFolderPath: []const u8 = "";
         if (self.isFireFox) {
-            driverFolderPath = try std.fmt.bufPrint(&buf, "{s}/{s}", .{
+            driverFolderPath = try std.fmt.bufPrint(&buf, "{s}/{s}/", .{
                 currentPath,
                 fireFoxFolder,
             });
@@ -771,8 +814,8 @@ pub const FileManager = struct {
             self.files.driverOutFile,
         });
         return .{
-            @as([]const u8, try self.getAllocator().dupe(u8, driverLogFilePath)),
             @as([]const u8, try self.getAllocator().dupe(u8, driverFolderPath)),
+            @as([]const u8, try self.getAllocator().dupe(u8, driverLogFilePath)),
         };
     }
     fn handleDriverOptions(self: *Self, driverOptions: Types.DriverConfigOptions) !struct { []const u8, []const u8 } {
@@ -825,39 +868,13 @@ pub const FileManager = struct {
     }
     fn createStartDetachedShFileData(
         allocator: std.mem.Allocator,
-        comptime sessionTitle: []const u8,
-        comptime serviceName: []const u8,
+        sessionTitle: []const u8,
+        serviceName: []const u8,
         fileToRun: []const u8,
     ) ![]const u8 {
-        //TODO:NOT SURE IF WE KEEP THIS HERE AND PIPE THE FILE DATA FROM THE FILE ITS SELF
-        // const outFileLog: []const u8 = "out";
-        // const cleanUpFileName = if (fileToRun.len >= 10 and Utils.containsAtLeast(u8, fileToRun, 1, ".")) fileToRun[2 .. fileToRun.len - 3] else outFileLog;
-        // const today = Utils.fromTimestamp(@intCast(time.timestamp()));
-        // const max_len = 100;
-        // var fileNameBuf: [max_len]u8 = undefined;
-        // var fmtFileBuf: [max_len]u8 = undefined;
-        // const outFilePipe = Utils.createFileName(
-        //     max_len,
-        //     &fileNameBuf,
-        //     try Utils.formatString(max_len, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
-        //         cleanUpFileName,
-        //         today.year,
-        //         today.month,
-        //         today.day,
-        //     }),
-        //     Types.FileExtensions.LOG,
-        // ) catch |e| {
-        //     Utils.printLn("Utils::executeCmds()::err:{s}\n", .{@errorName(e)});
-        //     @panic("Utils::executeCmds()::error creating fileName exiting program...\n");
-        // };
-        // const cwd = Utils.getCWD();
-        // try Utils.deleteFileIfExists(cwd, outFilePipe);
-        // const file = try cwd.createFile(outFilePipe, .{
-        //     .read = false,
-        //     .truncate = true,
-        // });
-        // try file.chmod(0o664);
-        // file.close();
+        // TODO:NOT SURE IF WE KEEP THIS HERE AND PIPE THE FILE DATA FROM THE FILE ITS SELF
+        const outFilePipe = try createOutFile(allocator, fileToRun);
+        defer allocator.free(outFilePipe);
         const fileData: []const u8 =
             \\#!/bin/bash
             \\echo "killing service: {s}..."
@@ -871,7 +888,7 @@ pub const FileManager = struct {
             \\fi
             \\# Start a new screen session with the title $session_title and run the command to start the server
             \\echo "Starting a new scree session with $session_title"
-            \\screen -dmS $session_title bash -c "chmod +x {s} && {s}; exec bash"
+            \\screen -dmS $session_title bash -c "chmod +x {s} && {s} {s} > {s} 2>&1; exec bash"
             \\
         ;
         var buf: [Utils.MAX_BUFF_SIZE]u8 = undefined;
@@ -881,12 +898,14 @@ pub const FileManager = struct {
             sessionTitle,
             fileToRun,
             fileToRun,
+            fileToRun,
+            outFilePipe,
         });
     }
     fn createDeleteDetachedShFileData(
         allocator: std.mem.Allocator,
-        comptime sessionTitle: []const u8,
-        comptime serviceName: []const u8,
+        sessionTitle: []const u8,
+        serviceName: []const u8,
     ) ![]const u8 {
         const fileData: []const u8 =
             \\#!/bin/bash
@@ -920,9 +939,12 @@ pub const FileManager = struct {
             folderNamePath,
             self.files.electronFolder,
         });
-        try self.log(Types.LogLevels.INFO, "e2e path {s}:", folderNamePath);
-        try self.log(Types.LogLevels.INFO, "electron folder path {s}:", pathToElectronFolder);
-        // try self.log(Types.LogLevels.INFO, "dist folder path {s}:", pathToDistFolder);
+        try self.log(Types.LogLevels.INFO, "FileManager::buildAndInstall()::received daata: {s}", .{
+            .{
+                .folderNamePath = folderNamePath,
+                .pathToElectronFolder = pathToElectronFolder,
+            },
+        });
         var buildAndInstallShFile = try cwd.createFile(self.setShFileByOs(Actions.buildAndInstallSh), .{});
         defer buildAndInstallShFile.close();
         try buildAndInstallShFile.chmod(0o775);
@@ -1013,12 +1035,102 @@ pub const FileManager = struct {
             const args = [_][]const u8{
                 "tar", "-xvzf", fileName, "-C", filePath,
             };
-            _ = Utils.executeCmds(args.len, self.getAllocator(), &args, fileName) catch |er| {
+            _ = Utils.executeCmds(
+                args.len,
+                self.getAllocator(),
+                &args,
+                fileName,
+                false,
+            ) catch |er| {
                 try self.log(Types.LogLevels.ERROR, "FileManager::downloadGeckoDriverExe()::failed to extract tar file: {s}", @errorName(er));
                 @panic("FileManager::downloadGeckoDriverExe()::failed to extract geckoDriver...");
             };
         }
         //TODO:HANDLE WINDOWS
+    }
+    fn findFireFoxProfile(self: *Self) !void {
+        const script =
+            \\#!/bin/bash
+            \\# Set the base directory to search in
+            \\search_dir=~
+            \\mozilla="mozilla"
+            \\cache_substr=".cache"  # Exclude any paths containing '.cache'
+            \\# Find directories named "firefox" and check for .default or default-release within
+            \\find $search_dir -type d -name "firefox" 2>/dev/null | while read firefox_dir; do
+            \\  # Check if the firefox_dir contains "mozilla" and does not have ".cache" in the path
+            \\  if [[ "$firefox_dir" == *"$mozilla"* && "$firefox_dir" != *"$cache_substr"* ]]; then
+            \\      # If "mozilla" is part of the path and doesn't contain .cache, search inside
+            \\      # Now search inside the firefox directory for .default or default-release
+            \\      find "$firefox_dir" -type d \( -name "*.default" -o -name "default-release" \) 2>/dev/null | while read match; do
+            \\          # Output the full path of each match (if found)
+            \\          echo "Found profile: $match"
+            \\      done
+            \\  fi
+            \\done
+            \\
+        ;
+        const cwd = Utils.getCWD();
+        const fileName = self.setShFileByOs(Actions.checkForFireFoxProfilePath);
+        try Utils.deleteFileIfExists(cwd, fileName);
+        var file = try cwd.createFile(fileName, .{});
+        try file.chmod(0o775);
+        // var buf: [Utils.MAX_BUFF_SIZE * 8]u8 = undefined;
+        const outFilePipe = try createOutFile(self.getAllocator(), fileName);
+        defer self.getAllocator().free(outFilePipe);
+        // const formattedScript = try Utils.formatStringAndCopy(
+        //     self.getAllocator(),
+        //     Utils.MAX_BUFF_SIZE * 8,
+        //     &buf,
+        //     script,
+        //     .{outFilePipe},
+        // );
+        // defer self.getAllocator().free(formattedScript);
+        Utils.writeAllToFile(file, script) catch |e| {
+            try self.log(Types.LogLevels.ERROR, "FileManager::findFireFoxProfile()::received error: {s}", @errorName(e));
+            @panic(@errorName(e));
+        };
+        file.close();
+        const arg = [1][]const u8{
+            fileName,
+        };
+        _ = try Utils.executeCmds(
+            arg.len,
+            self.getAllocator(),
+            &arg,
+            fileName,
+            true,
+        );
+    }
+    fn createOutFile(allocator: std.mem.Allocator, fileToRun: []const u8) ![]const u8 {
+        const outFileLog: []const u8 = "out";
+        const cleanUpFileName = if (fileToRun.len >= 10 and Utils.containsAtLeast(u8, fileToRun, 1, ".")) fileToRun[2 .. fileToRun.len - 3] else outFileLog;
+        const today = Utils.fromTimestamp(@intCast(time.timestamp()));
+        const max_len = 100;
+        var fileNameBuf: [max_len]u8 = undefined;
+        var fmtFileBuf: [max_len]u8 = undefined;
+        const outFilePipe = Utils.createFileName(
+            max_len,
+            &fileNameBuf,
+            try Utils.formatString(max_len, &fmtFileBuf, "{s}_{d}_{d}_{d}", .{
+                cleanUpFileName,
+                today.year,
+                today.month,
+                today.day,
+            }),
+            Types.FileExtensions.LOG,
+        ) catch |e| {
+            Utils.printLn("Utils::executeCmds()::err:{s}\n", .{@errorName(e)});
+            @panic("Utils::executeCmds()::error creating fileName exiting program...\n");
+        };
+        const cwd = Utils.getCWD();
+        try Utils.deleteFileIfExists(cwd, outFilePipe);
+        const file = try cwd.createFile(outFilePipe, .{
+            .read = false,
+            .truncate = true,
+        });
+        try file.chmod(0o664);
+        file.close();
+        return try allocator.dupe(u8, outFilePipe);
     }
     //TODO: NOT SURE IF THIS IS NEEDED
     // fn handleFileDeletion(self: *Self) !void {
@@ -1038,3 +1150,6 @@ pub const FileManager = struct {
     // }
     // fn handleFileCreation(_: *Self) !void {}
 };
+
+// mfduar8766@mfduar8766-HP-OmniBook-X-Flip-Laptop-16-as0xxx:~/Desktop/browserAutomation-Zig/example$ find ~ -type d -name "firefox" 2>/dev/null
+// mfduar8766@mfduar8766-HP-OmniBook-X-Flip-Laptop-16-as0xxx:~/Desktop/browserAutomation-Zig/example$ ls /home/mfduar8766/snap/firefox/common/.mozilla/firefox/
